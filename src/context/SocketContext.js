@@ -1,74 +1,63 @@
-import { createContext, useContext, useEffect, useState, useRef } from 'react';
+// frontend/context/SocketContext.js
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import io from 'socket.io-client';
-import { useAuth } from './AuthContext'; // Assuming AuthContext is in the same directory
+import { useAuth } from './AuthContext'; // To get the user ID
 
-const SocketContext = createContext();
+const SocketContext = createContext(null);
+
+export const useSocket = () => {
+  return useContext(SocketContext);
+};
 
 export const SocketProvider = ({ children }) => {
-  const { user } = useAuth(); // Get authenticated user from AuthContext
-  const socketRef = useRef(null); // Use ref to hold the socket instance
-  const [isConnected, setIsConnected] = useState(false);
+  const [socket, setSocket] = useState(null);
+  const { user, isAuthenticated } = useAuth(); // Get user from AuthContext
+  const socketRef = useRef(null); // Use a ref to hold the socket instance
 
   useEffect(() => {
-    // Only attempt to connect if user is authenticated and socket not already created
-    if (user && !socketRef.current) {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-      
-      if (!backendUrl) {
-          console.error("NEXT_PUBLIC_BACKEND_URL is not defined in .env.local!");
-          return;
-      }
-
-      const token = localStorage.getItem('token'); // Retrieve JWT token
-
-      // Initialize Socket.IO client
-      const newSocket = io(backendUrl, {
-        transports: ['websocket'], // Prefer WebSocket for real-time
-        // IMPORTANT: Pass the JWT token for authentication with the backend
-        auth: {
-          token: token // This token will be accessible in backend's socket.use middleware
-        },
-        autoConnect: false // Don't auto-connect, we'll connect manually after setting up listeners
+    // Only connect if authenticated and socket is not already connected
+    if (isAuthenticated && user && !socketRef.current) {
+      console.log('SocketProvider: Attempting to connect to Socket.IO...');
+      const newSocket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000', {
+        // You can add auth headers here if your socket server needs them
+        // auth: { token: localStorage.getItem('token') }
       });
 
-      // Event listeners for socket connection status
       newSocket.on('connect', () => {
-        setIsConnected(true);
-        console.log('Socket connected:', newSocket.id);
+        console.log('Socket.IO Connected:', newSocket.id);
+        // Join a personal room for general notifications (e.g., chat list updates)
+        newSocket.emit('join_chat', `user_${user._id}`);
       });
 
       newSocket.on('disconnect', () => {
-        setIsConnected(false);
-        console.log('Socket disconnected');
+        console.log('Socket.IO Disconnected');
       });
 
-      newSocket.on('connect_error', (err) => {
-        console.error('Socket connection error:', err.message);
-        // Additional error handling if needed, e.g., prompt for re-login
+      newSocket.on('connect_error', (error) => {
+        console.error('Socket.IO Connect Error:', error);
       });
 
-      // Connect the socket
-      newSocket.connect();
-      socketRef.current = newSocket;
-    }
+      setSocket(newSocket);
+      socketRef.current = newSocket; // Store in ref
 
-    // Cleanup function: Disconnect on unmount or if user logs out
-    return () => {
-      if (socketRef.current) {
-        console.log('Disconnecting socket...');
+      // Cleanup function
+      return () => {
+        console.log('SocketProvider: Disconnecting Socket.IO...');
+        newSocket.disconnect();
+        socketRef.current = null;
+      };
+    } else if (!isAuthenticated && socketRef.current) {
+        // Disconnect if user logs out
+        console.log('SocketProvider: User logged out, disconnecting socket...');
         socketRef.current.disconnect();
         socketRef.current = null;
-        setIsConnected(false); // Reset connection status
-      }
-    };
-  }, [user]); // Re-run effect if the 'user' object changes (e.g., login/logout)
+        setSocket(null);
+    }
+  }, [isAuthenticated, user]); // Depend on isAuthenticated and user object
 
-  // Provide the socket instance and connection status to children components
   return (
-    <SocketContext.Provider value={{ socket: socketRef.current, isConnected }}>
+    <SocketContext.Provider value={socket}>
       {children}
     </SocketContext.Provider>
   );
 };
-
-export const useSocket = () => useContext(SocketContext);

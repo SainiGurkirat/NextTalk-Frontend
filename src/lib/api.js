@@ -3,14 +3,11 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:500
 
 const handleResponse = async (response) => {
     if (!response.ok) {
-        // Try to parse error message if available, otherwise use generic
-        const errorText = await response.text(); // Read as text first
+        const errorText = await response.text();
         try {
-            const errorData = JSON.parse(errorText); // Attempt to parse as JSON
+            const errorData = JSON.parse(errorText);
             throw new Error(errorData.message || 'Something went wrong');
         } catch (e) {
-            // If it's not JSON (like HTML for 404), use the status text
-            // Fallback to a generic message if statusText is also empty
             throw new Error(response.statusText || 'Something went wrong on the server');
         }
     }
@@ -69,7 +66,7 @@ export const createChat = async (participantIds, type, name, token) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ participants: participantIds, type, name }),
+        body: JSON.stringify({ participantIds, type, name }),
     });
     return handleResponse(response);
 };
@@ -89,6 +86,19 @@ export const sendMessage = async (chatId, content, token) => {
             'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ content }),
+    });
+    return handleResponse(response);
+};
+
+// NEW API CALL: Mark messages in a chat as read
+export const markMessagesAsRead = async (chatId, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/markAsRead`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({}), // Empty body for a POST request that doesn't need data
     });
     return handleResponse(response);
 };
