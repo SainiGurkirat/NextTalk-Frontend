@@ -3,32 +3,36 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:500
 
 const handleResponse = async (response) => {
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Something went wrong');
+        // Try to parse error message if available, otherwise use generic
+        const errorText = await response.text(); // Read as text first
+        try {
+            const errorData = JSON.parse(errorText); // Attempt to parse as JSON
+            throw new Error(errorData.message || 'Something went wrong');
+        } catch (e) {
+            // If it's not JSON (like HTML for 404), use the status text
+            // Fallback to a generic message if statusText is also empty
+            throw new Error(response.statusText || 'Something went wrong on the server');
+        }
     }
     return response.json();
 };
 
 export const loginUser = async (email, password) => {
-    console.log('API: Sending login request with:', { email, password }); // This log you already have
-
+    console.log('API: Sending login request with:', { email, password });
     const requestBody = JSON.stringify({ email, password });
-    console.log('API: Stringified request body:', requestBody); // <--- THIS LOG MUST APPEAR
-
+    console.log('API: Stringified request body:', requestBody);
     const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: requestBody, // Use the variable here
+        body: requestBody,
     });
     return handleResponse(response);
 };
 
 export const registerUser = async (username, email, password) => {
-    console.log('API: Sending register request with:', { username, email, password }); // Debug log
-
+    console.log('API: Sending register request with:', { username, email, password });
     const requestBody = JSON.stringify({ username, email, password });
-    console.log('API: Stringified register body:', requestBody); // <--- THIS LOG MUST APPEAR FOR REGISTER
-
+    console.log('API: Stringified register body:', requestBody);
     const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -52,7 +56,7 @@ export const getChats = async (token) => {
 };
 
 export const searchUsers = async (query, token) => {
-    const response = await fetch(`<span class="math-inline">\{BACKEND\_URL\}/api/users/search?query\=</span>{encodeURIComponent(query)}`, {
+    const response = await fetch(`${BACKEND_URL}/api/users/search?query=${encodeURIComponent(query)}`, {
         headers: { 'Authorization': `Bearer ${token}` },
     });
     return handleResponse(response);
@@ -77,10 +81,8 @@ export const getMessagesForChat = async (chatId, token) => {
     return handleResponse(response);
 };
 
-// TODO: Add sendMessage API call here or integrate with WebSocket for real-time messages
-/*
 export const sendMessage = async (chatId, content, token) => {
-    const response = await fetch(`<span class="math-inline">\{BACKEND\_URL\}/<141\>api/chats/</span>{chatId}/messages`, {
+    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/messages`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -90,4 +92,3 @@ export const sendMessage = async (chatId, content, token) => {
     });
     return handleResponse(response);
 };
-*/

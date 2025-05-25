@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Layout from '../../components/Layout';
 import { useAuth } from '../../context/AuthContext';
-import { getChats, searchUsers, createChat, getMessagesForChat } from '../../lib/api';
+import { getChats, searchUsers, createChat, getMessagesForChat, sendMessage } from '../../lib/api';
 import UserSearch from '../../components/UserSearch';
 import ChatList from '../../components/ChatList';
 import ChatWindow from '../../components/ChatWindow';
@@ -11,14 +11,13 @@ const ChatsPage = () => {
   const { isAuthenticated, user } = useAuth();
   const [chats, setChats] = useState([]);
   const [loadingChats, setLoadingChats] = useState(true);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(''); // General page message/error
   const [searchResults, setSearchResults] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
-  // --- DEBUG LOGS FOR TOKEN RETRIEVAL ---
   useEffect(() => {
     const testToken = localStorage.getItem('token');
     console.log('ChatsPage: useEffect - Token from localStorage on mount:', testToken);
@@ -44,8 +43,8 @@ const ChatsPage = () => {
     } catch (error) {
       console.error('ChatsPage: Fetch chats error:', error);
       setMessage(error.message || 'Failed to load chats.');
-      if (error.message === 'Invalid token' || error.message.includes('403')) {
-          localStorage.removeItem('token');
+      if (error.message.includes('token') || error.message.includes('403') || error.message.includes('401')) {
+        localStorage.removeItem('token');
       }
     } finally {
       setLoadingChats(false);
@@ -90,7 +89,6 @@ const ChatsPage = () => {
     fetchMessages();
   }, [fetchMessages]);
 
-
   const handleSearchChange = (e) => {
     setSearchQuery(e.target.value);
   };
@@ -108,7 +106,7 @@ const ChatsPage = () => {
         return;
       }
       const data = await searchUsers(query, token);
-      setSearchResults(data.filter(u => u._id !== user?._id)); // Use _id from user object
+      setSearchResults(data.filter(u => u._id !== user?._id));
     } catch (error) {
       console.error('ChatsPage: User search error:', error);
       setMessage(error.message || 'Failed to search users.');
@@ -120,19 +118,31 @@ const ChatsPage = () => {
       const token = localStorage.getItem('token');
       if (!token) {
         console.error('ChatsPage: handleCreateChat - No token found! Cannot create chat.');
+        setMessage('Authentication required to create chats.');
         return;
       }
       const participants = [...participantIds];
-      if (user?._id && !participants.includes(user._id)) { // Use _id for consistency
+      if (user?._id && !participants.includes(user._id)) {
         participants.push(user._id);
       }
 
       const newChat = await createChat(participants, type, name, token);
-      setChats(prevChats => [...prevChats, newChat]);
-      setSelectedChat(newChat);
+      
+      // Update chats state: add new chat, then sort it if necessary
+      setChats(prevChats => {
+        const updatedChats = [...prevChats, newChat.chat]; // newChat response has a 'chat' property
+        // Sort to bring the new chat to the top if it has a last message (or just for consistency)
+        return updatedChats.sort((a, b) => {
+            const dateA = a.updatedAt ? new Date(a.updatedAt) : new Date(0); // Default to epoch for no update
+            const dateB = b.updatedAt ? new Date(b.updatedAt) : new Date(0);
+            return dateB.getTime() - dateA.getTime();
+        });
+      });
+      setSelectedChat(newChat.chat); // Select the newly created chat
       setMessage('Chat created successfully!');
       setSearchResults([]);
       setSearchQuery('');
+      // No fetchChats() here, as we've already added it to state
     } catch (error) {
       console.error('ChatsPage: Create chat error:', error);
       setMessage(error.message || 'Failed to create chat.');
@@ -144,35 +154,109 @@ const ChatsPage = () => {
   };
 
   const handleSendMessage = useCallback(async (content) => {
-    if (!selectedChat || !content.trim()) return;
+    if (!selectedChat || !content.trim() || !user) return; // Ensure user is defined
+
+    let tempMessageId; // Declare outside try block
+    let optimisticMessage; // Declare outside try block
+    const originalLastMessage = selectedChat.lastMessage; // Store for rollback
 
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.error('ChatsPage: handleSendMessage - No token found!');
+        console.error('ChatsPage: handleSendMessage - No token found! Cannot send message.');
+        setMessage('Authentication required to send messages.');
         return;
       }
-      const newMessage = {
-        _id: Date.now().toString(),
+
+      // 1. Optimistic Update for Chat Window (immediate display)
+      tempMessageId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`; // Unique temp ID
+      optimisticMessage = {
+        _id: tempMessageId,
         chat: selectedChat._id,
         sender: {
-          _id: user._id, // Use _id for current user
+          _id: user._id,
           username: user.username,
+          profilePicture: user.profilePicture // Include profile picture if available
         },
         content: content,
         timestamp: new Date().toISOString(),
       };
-      setMessages(prevMessages => [...prevMessages, newMessage]);
-      // TODO: Call your actual API/Socket send here.
-      // Example: await sendMessage(selectedChat._id, content, token);
-      console.log(`[Frontend] Sending message: "${content}" to chat ${selectedChat._id}`);
+      setMessages(prevMessages => [...prevMessages, optimisticMessage]);
+
+      // 2. Optimistic Update for Chat List (update lastMessage locally)
+      // This is the key to preventing the "flash"
+      setChats(prevChats => {
+        const updatedChats = prevChats.map(chat => {
+          if (chat._id === selectedChat._id) {
+            return {
+              ...chat,
+              lastMessage: { // Manually create the lastMessage object to match backend populated structure
+                _id: optimisticMessage._id, // This will be replaced by server _id later
+                sender: optimisticMessage.sender,
+                content: optimisticMessage.content,
+                timestamp: optimisticMessage.timestamp,
+              },
+              updatedAt: optimisticMessage.timestamp, // Update chat's updatedAt for sorting
+            };
+          }
+          return chat;
+        });
+        // Sort to bring the current chat to the top
+        return updatedChats.sort((a, b) => {
+            const dateA = a.updatedAt ? new Date(a.updatedAt) : new Date(0);
+            const dateB = b.updatedAt ? new Date(b.updatedAt) : new Date(0);
+            return dateB.getTime() - dateA.getTime();
+        });
+      });
+
+
+      // 3. Call the backend API to send the message
+      const sentMessage = await sendMessage(selectedChat._id, content, token);
+      console.log('[Frontend] Message sent successfully to backend:', sentMessage);
+
+      // 4. Update Chat Window with server-returned message (replace temp with real)
+      setMessages(prevMessages =>
+        prevMessages.map(msg => (msg._id === tempMessageId ? sentMessage : msg))
+      );
+
+      // 5. Update selectedChat state with the correct lastMessage and updatedAt
+      // This is important for the ChatWindow to reflect the true last message
+      setSelectedChat(prevSelectedChat => {
+        if (!prevSelectedChat || prevSelectedChat._id !== selectedChat._id) return prevSelectedChat;
+        return {
+          ...prevSelectedChat,
+          lastMessage: {
+            _id: sentMessage._id,
+            sender: sentMessage.sender,
+            content: sentMessage.content,
+            timestamp: sentMessage.timestamp,
+          },
+          updatedAt: sentMessage.timestamp,
+        };
+      });
 
     } catch (error) {
       console.error('ChatsPage: Send message error:', error);
-      setMessage('Failed to send message.');
-    }
-  }, [selectedChat, user]);
+      setMessage(error.message || 'Failed to send message.');
 
+      // Rollback optimistic updates if sending fails
+      if (tempMessageId) {
+        setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempMessageId));
+        setChats(prevChats => {
+          return prevChats.map(chat => {
+            if (chat._id === selectedChat._id) {
+              return {
+                ...chat,
+                lastMessage: originalLastMessage, // Revert lastMessage
+                updatedAt: originalLastMessage?.timestamp || chat.createdAt, // Revert updatedAt
+              };
+            }
+            return chat;
+          });
+        });
+      }
+    }
+  }, [selectedChat, user]); // Removed fetchChats from dependencies
 
   if (!isAuthenticated) {
     return (
@@ -189,7 +273,7 @@ const ChatsPage = () => {
       <div className="flex h-[calc(100vh-64px)]">
         {/* Left pane: User Search and Chat List */}
         <div className="w-1/3 border-r border-gray-700 bg-gray-800 p-4 flex flex-col">
-          <h2 className="text-2xl font-semibold mb-4 text-white">Chats</h2> {/* Changed to white */}
+          <h2 className="text-2xl font-semibold mb-4 text-white">Chats</h2>
           {message && (
             <div className={`p-2 mb-4 rounded-md ${message.includes('success') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
               {message}
@@ -215,10 +299,10 @@ const ChatsPage = () => {
                     <span className="text-gray-400 ml-2 text-sm">({resultUser.email})</span>
                     {user && user._id && resultUser._id !== user._id && (
                         <button
-                            onClick={() => handleCreateChat([resultUser._id])}
-                            className="ml-2 px-3 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                          onClick={() => handleCreateChat([resultUser._id])}
+                          className="ml-2 px-3 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
                         >
-                            Chat
+                          Chat
                         </button>
                     )}
                   </div>
@@ -230,7 +314,7 @@ const ChatsPage = () => {
           {loadingChats ? (
             <p className="text-center text-gray-500">Loading chats...</p>
           ) : (
-            <div className="flex-1 overflow-y-auto custom-scrollbar"> {/* Added wrapper div for flex */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
               <ChatList chats={chats} onSelectChat={handleSelectChat} selectedChatId={selectedChat?._id} currentUser={user} />
             </div>
           )}
