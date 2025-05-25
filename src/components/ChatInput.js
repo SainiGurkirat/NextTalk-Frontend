@@ -1,50 +1,30 @@
-import { useState } from 'react';
+// --- File: src/components/ChatInput.js ---
+import React, { useState } from 'react';
 
-const ChatInput = ({ onSendMessage, onTyping }) => {
+const ChatInput = ({ onSendMessage }) => {
   const [message, setMessage] = useState('');
-  const [typingTimeout, setTypingTimeout] = useState(null);
-
-  const handleInputChange = (e) => {
-    setMessage(e.target.value);
-    // Emit typing event
-    if (onTyping) {
-      if (!typingTimeout) {
-        onTyping(true); // User started typing
-      }
-      clearTimeout(typingTimeout);
-      setTypingTimeout(setTimeout(() => {
-        onTyping(false); // User stopped typing
-        setTypingTimeout(null);
-      }, 1000)); // Emit 'stopped typing' after 1 second of no input
-    }
-  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (message.trim()) {
       onSendMessage(message);
       setMessage('');
-      if (typingTimeout) {
-        clearTimeout(typingTimeout);
-        setTypingTimeout(null);
-        onTyping(false); // Ensure typing status is reset on send
-      }
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center p-4 bg-white rounded-lg shadow-md mt-4">
+    <form onSubmit={handleSubmit} className="flex space-x-2">
       <input
         type="text"
         value={message}
-        onChange={handleInputChange}
+        onChange={(e) => setMessage(e.target.value)}
         placeholder="Type a message..."
-        className="flex-1 p-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary mr-2"
+        className="flex-1 p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
       <button
         type="submit"
-        className="bg-primary hover:bg-secondary text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:shadow-outline transition duration-200 ease-in-out disabled:opacity-50"
-        disabled={isLoading}
+        className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        // Removed disabled={isLoading} as isLoading is not defined in this component
       >
         Send
       </button>
