@@ -1,14 +1,15 @@
-// --- File: src/components/ChatInput.js ---
-import React, { useState } from 'react';
+// frontend/components/ChatInput.js
+import React, { useState } from 'react'; // CORRECTED LINE
+// import React, { useState } => { // INCORRECT LINE I PROVIDED PREVIOUSLY
 
-const ChatInput = ({ onSendMessage }) => {
-  const [message, setMessage] = useState('');
+const ChatInput = ({ onSendMessage }) => { // onSendMessage prop added
+  const [inputContent, setInputContent] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (message.trim()) {
-      onSendMessage(message);
-      setMessage('');
+    if (inputContent.trim()) {
+      onSendMessage(inputContent.trim()); // Call the parent's onSendMessage
+      setInputContent(''); // Clear input after sending
     }
   };
 
@@ -16,15 +17,14 @@ const ChatInput = ({ onSendMessage }) => {
     <form onSubmit={handleSubmit} className="flex space-x-2">
       <input
         type="text"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
+        value={inputContent}
+        onChange={(e) => setInputContent(e.target.value)}
         placeholder="Type a message..."
-        className="flex-1 p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="flex-1 p-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
       <button
         type="submit"
-        className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        // Removed disabled={isLoading} as isLoading is not defined in this component
+        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
       >
         Send
       </button>

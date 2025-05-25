@@ -1,98 +1,48 @@
-import { useState } from 'react';
-import { searchUsers, createChat } from '../lib/api';
-import { useRouter } from 'next/router';
+// frontend/components/UserSearch.js
+import React from 'react';
 
-const UserSearch = ({ currentUserId, onChatCreated }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const router = useRouter();
-
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!searchTerm.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const token = localStorage.getItem('token');
-      const users = await searchUsers(searchTerm, token);
-      setSearchResults(users);
-    } catch (err) {
-      setError('Failed to search users. Please try again.');
-      console.error('User search error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreateChat = async (targetUserId) => {
-    setLoading(true);
-    setError('');
-    try {
-      const token = localStorage.getItem('token');
-      const response = await createChat([currentUserId, targetUserId], 'private', null, token);
-      if (response.chat) {
-        onChatCreated(); // Notify parent to refresh chat list
-        router.push(`/chats/${response.chat._id}`);
-      } else {
-        // This case handles when a private chat already exists and the backend returns it
-        router.push(`/chats/${response.chat._id}`);
-      }
-    } catch (err) {
-      setError('Failed to create chat. Please try again.');
-      console.error('Create chat error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+// Props: query, onSearchChange, onSearchSubmit, searchResults, onCreateChat
+const UserSearch = ({ query, onSearchChange, onSearchSubmit, searchResults, onCreateChat }) => {
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-      <h3 className="text-xl font-semibold mb-4 text-primary">Start a New Chat</h3>
-      <form onSubmit={handleSearch} className="flex mb-4">
+    <div className="p-4 border-b border-gray-700 bg-gray-800">
+      {/* Form for user search input */}
+      <form onSubmit={onSearchSubmit} className="mb-4">
         <input
           type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Search users by username or email..."
-          className="flex-1 p-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary mr-2"
+          placeholder="Search users..."
+          value={query} // Use 'query' prop here
+          onChange={onSearchChange}
+          className="w-full p-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        <button
-          type="submit"
-          className="bg-primary hover:bg-secondary text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:shadow-outline transition duration-200 ease-in-out disabled:opacity-50"
-          disabled={loading}
-        >
-          {loading ? 'Searching...' : 'Search'}
-        </button>
       </form>
 
-      {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-
-      {searchResults.length > 0 && (
-        <div className="mt-4 border-t border-gray-200 pt-4">
-          <h4 className="font-medium text-lightText mb-2">Search Results:</h4>
-          <ul className="space-y-2">
+      {/* Display search results if available */}
+      {searchResults && searchResults.length > 0 && (
+        <div className="bg-gray-700 rounded-md max-h-48 overflow-y-auto custom-scrollbar">
+          <ul>
             {searchResults.map((user) => (
-              <li key={user._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                <span className="font-medium">{user.username} ({user.email})</span>
-                <button
-                  onClick={() => handleCreateChat(user._id)}
-                  className="bg-accent hover:bg-green-600 text-white text-sm py-1.5 px-3 rounded-md transition duration-200 ease-in-out disabled:opacity-50"
-                  disabled={loading}
-                >
-                  Chat
-                </button>
+              <li
+                key={user._id} // Assuming backend returns _id for users
+                onClick={() => onCreateChat(user._id)} // Pass user._id to create chat
+                className="flex items-center p-3 cursor-pointer hover:bg-gray-600 transition-colors duration-200"
+              >
+                {/* User's initial avatar */}
+                <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-md font-bold mr-3">
+                  {user.username ? user.username[0].toUpperCase() : ''}
+                </div>
+                {/* User's username and email */}
+                <span className="text-white">{user.username}</span>
+                <span className="text-gray-400 ml-2 text-sm">({user.email})</span>
               </li>
             ))}
           </ul>
         </div>
       )}
-      {searchTerm.trim() && !loading && searchResults.length === 0 && (
-        <p className="text-lightText text-sm mt-4">No users found matching your search.</p>
+
+      {/* Message when no users are found after a search query is typed */}
+      {/* Ensure 'query' is not undefined before calling .trim() */}
+      {query && query.trim() && searchResults.length === 0 && (
+        <p className="text-gray-400 text-center p-4">No users found.</p>
       )}
     </div>
   );
