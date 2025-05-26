@@ -1,8 +1,8 @@
 // frontend/components/ChatWindow.js
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ChatInput from './ChatInput';
-import { getGroupMembers, addGroupMembers, removeGroupMember, searchUsers } from '../lib/api'; // Import new API calls
-import Notification from './Notification'; // Assuming you use this
+import { getGroupMembers, addGroupMembers, removeGroupMember, searchUsers } from '../lib/api';
+import Notification from './Notification'; // Assuming you have this
 import UserSearch from './UserSearch'; // Reuse UserSearch for adding members
 
 const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessages, showNotification, token, onChatUpdate }) => {
@@ -11,7 +11,7 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
     const [groupMembers, setGroupMembers] = useState([]);
     const [isCurrentUserAdmin, setIsCurrentUserAdmin] = useState(false);
 
-    // State for adding members via search
+    // State for adding members via search within the modal
     const [addMemberSearchQuery, setAddMemberSearchQuery] = useState('');
     const [addMemberSearchResults, setAddMemberSearchResults] = useState([]);
     const [selectedUsersToAdd, setSelectedUsersToAdd] = useState([]);
@@ -27,7 +27,7 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
     // Check if current user is admin whenever currentChat or user changes
     useEffect(() => {
         if (currentChat && user && currentChat.type === 'group') {
-            setIsCurrentUserAdmin(currentChat.admins.includes(user._id));
+            setIsCurrentUserAdmin(currentChat.admins?.includes(user._id)); // Use optional chaining for safety
         } else {
             setIsCurrentUserAdmin(false); // Not an admin for private chats
         }
@@ -39,6 +39,7 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
         if (currentChat && currentChat.type === 'group' && token) {
             try {
                 const members = await getGroupMembers(currentChat._id, token);
+                // Ensure members have isAdmin property if available from backend
                 setGroupMembers(members);
             } catch (error) {
                 console.error('Failed to fetch group members:', error);
@@ -76,7 +77,6 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
     }, [token, user, groupMembers, showNotification]);
 
     const handleSelectUserToAdd = (selectedUser) => {
-        // Simple add/remove toggle for now, could be a multi-select checkbox list
         setSelectedUsersToAdd(prev =>
             prev.some(u => u._id === selectedUser._id)
                 ? prev.filter(u => u._id !== selectedUser._id)
@@ -97,8 +97,8 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
             setAddMemberSearchQuery(''); // Clear search query
             setAddMemberSearchResults([]); // Clear search results
 
-            await fetchGroupMembers(); // Re-fetch group members to update the list
-            onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details
+            await fetchGroupMembers(); // Re-fetch group members to update the list in modal
+            onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details (e.g., participants)
         } catch (error) {
             console.error('Error adding members:', error);
             showNotification(error.message || 'Failed to add members.', 'error');
@@ -114,9 +114,8 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
         try {
             await removeGroupMember(currentChat._id, memberId, token);
             showNotification('Member removed successfully!', 'success');
-            await fetchGroupMembers(); // Re-fetch group members to update the list
-            onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details
-             // If the removed member was the current user, they'll be redirected by chatDeleted socket event
+            await fetchGroupMembers(); // Re-fetch group members to update the list in modal
+            onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details (e.g., participants)
         } catch (error) {
             console.error('Error removing member:', error);
             showNotification(error.message || 'Failed to remove member.', 'error');
@@ -133,12 +132,12 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
         );
     }
 
-    const chatDisplayName = currentChat.type === 'private' && currentChat.recipient
-        ? currentChat.recipient.username
+    const chatDisplayName = currentChat.type === 'private'
+        ? currentChat.participants.find(p => p._id !== user._id)?.username || 'Unknown User'
         : currentChat.name;
 
-    const chatDisplayImage = currentChat.type === 'private' && currentChat.recipient
-        ? currentChat.recipient.profilePicture || '/default-avatar.png'
+    const chatDisplayImage = currentChat.type === 'private'
+        ? currentChat.participants.find(p => p._id !== user._id)?.profilePicture || '/default-avatar.png'
         : '/default-group-avatar.png';
 
 
@@ -215,7 +214,7 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                         <div className="flex items-center">
                                             <img src={member.profilePicture || '/default-avatar.png'} alt={member.username} className="w-10 h-10 rounded-full mr-3 object-cover" />
                                             <span className="text-lg text-white">{member.username}</span>
-                                            {member.isAdmin && <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">Admin</span>}
+                                            {currentChat.admins.includes(member._id) && <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">Admin</span>}
                                         </div>
                                         {isCurrentUserAdmin && member._id !== user._id && ( // Admins can remove, but not themselves
                                             <button
@@ -240,10 +239,13 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                     query={addMemberSearchQuery}
                                     onSearchChange={handleAddMemberSearch}
                                     searchResults={addMemberSearchResults}
-                                    onSelectUser={handleSelectUserToAdd} // New prop for selecting users
-                                    selectedUsers={selectedUsersToAdd} // New prop to indicate selected
-                                    // onCreateChat is not needed here as we're adding to existing group
-                                    // We don't need chats or currentUser for this specific instance of UserSearch
+                                    onSelectUser={handleSelectUserToAdd}
+                                    selectedUsers={selectedUsersToAdd}
+                                    // These props are not needed for this usage of UserSearch:
+                                    // onCreateChat={undefined}
+                                    // chats={undefined}
+                                    // currentUser={undefined}
+                                    // showNotification={undefined}
                                 />
                                 {selectedUsersToAdd.length > 0 && (
                                     <div className="mt-3">

@@ -1,80 +1,66 @@
 // frontend/lib/api.js
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
 
 const handleResponse = async (response) => {
     if (!response.ok) {
-        const errorText = await response.text();
-        try {
-            const errorData = JSON.parse(errorText);
-            throw new Error(errorData.message || 'Something went wrong');
-        } catch (e) {
-            throw new Error(response.statusText || 'Something went wrong on the server');
-        }
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Something went wrong');
     }
     return response.json();
 };
 
-export const loginUser = async (email, password) => {
-    console.log('API: Sending login request with:', { email, password });
-    const requestBody = JSON.stringify({ email, password });
-    console.log('API: Stringified request body:', requestBody);
-    const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
+export const registerUser = async (username, email, password) => {
+    const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: requestBody,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, email, password }),
     });
     return handleResponse(response);
 };
 
-export const registerUser = async (username, email, password) => {
-    console.log('API: Sending register request with:', { username, email, password });
-    const requestBody = JSON.stringify({ username, email, password });
-    console.log('API: Stringified register body:', requestBody);
-    const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
+export const loginUser = async (email, password) => {
+    const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: requestBody,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
     });
     return handleResponse(response);
 };
 
 export const getUserProfile = async (token) => {
-    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-        headers: { 'Authorization': `Bearer ${token}` },
+    const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
     });
     return handleResponse(response);
 };
 
 export const getChats = async (token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats`, {
-        headers: { 'Authorization': `Bearer ${token}` },
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
     });
     return handleResponse(response);
 };
 
-export const searchUsers = async (query, token) => {
-    const response = await fetch(`${BACKEND_URL}/api/users/search?query=${encodeURIComponent(query)}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-    });
-    return handleResponse(response);
-};
-
-// frontend/lib/api.js
-export const createChat = async (participantIds, type, name, token) => {
+export const createChat = async (participantIds, type, name = '', token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ participants: participantIds, type, name }), // <--- CHANGE HERE
-    });
-    return handleResponse(response);
-};
-
-export const getMessagesForChat = async (chatId, token) => {
-    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/messages`, {
-        headers: { 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ participants: participantIds, type, name }),
     });
     return handleResponse(response);
 };
@@ -91,7 +77,28 @@ export const sendMessage = async (chatId, content, token) => {
     return handleResponse(response);
 };
 
-// NEW API CALL: Mark messages in a chat as read
+export const getMessagesForChat = async (chatId, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/messages`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+    });
+    return handleResponse(response);
+};
+
+export const searchUsers = async (query, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/users/search?q=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+    });
+    return handleResponse(response);
+};
+
 export const markMessagesAsRead = async (chatId, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/markAsRead`, {
         method: 'POST',
@@ -99,57 +106,44 @@ export const markMessagesAsRead = async (chatId, token) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({}), // Empty body for a POST request that doesn't need data
+        body: JSON.stringify({}), // Empty body as chatId and userId are in params
     });
     return handleResponse(response);
 };
 
-// Add these functions somewhere in your frontend/lib/api.js file,
-// alongside other functions like loginUser, getChats, searchUsers, etc.
-
+// NEW: Get Group Members
 export const getGroupMembers = async (chatId, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members`, {
-        headers: { 'Authorization': `Bearer ${token}` },
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
     });
     return handleResponse(response);
 };
 
-export const addGroupMembers = async (chatId, memberIds, token) => {
+// NEW: Add Group Members
+export const addGroupMembers = async (chatId, newMemberIds, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ memberIds }),
+        body: JSON.stringify({ new_member_ids: newMemberIds }),
     });
     return handleResponse(response);
 };
 
-export const removeGroupMember = async (chatId, memberId, token) => {
-    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members/${memberId}`, {
+// NEW: Remove Group Member
+export const removeGroupMember = async (chatId, memberIdToRemove, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members/${memberIdToRemove}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
-    });
-    return handleResponse(response);
-};
-
-export const updateGroupChat = async (chatId, updateData, token) => {
-    const response = await fetch(`${BACKEND_URL}/api/chats/group/${chatId}`, {
-        method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify(updateData),
-    });
-    return handleResponse(response);
-};
-
-export const deleteChat = async (chatId, token) => {
-    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
     });
     return handleResponse(response);
 };
