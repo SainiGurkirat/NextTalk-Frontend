@@ -1,566 +1,422 @@
 // frontend/pages/chats/index.js
-import React, { useState, useEffect, useCallback } from 'react';
-import Layout from '../../components/Layout';
-import { useAuth } from '../../context/AuthContext';
-import { useSocket } from '../../context/SocketContext';
-import { getChats, searchUsers, createChat, getMessagesForChat, sendMessage, markMessagesAsRead } from '../../lib/api';
-import UserSearch from '../../components/UserSearch';
-import ChatList from '../../components/ChatList';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/router';
+import io from 'socket.io-client';
+import { getChats, getUserProfile, createChat, sendMessage, getMessagesForChat, searchUsers, markMessagesAsRead } from '../../lib/api';
 import ChatWindow from '../../components/ChatWindow';
-import useDebounce from '../../hooks/useDebounce'; // Import the new hook
+import UserSearch from '../../components/UserSearch'; // <--- IMPORT YOUR USERSEARCH
+import Notification from '../../components/Notification';
+// No specific CSS module for ChatsPage, assuming Tailwind is global or applied via global.css
+// import styles from '../../styles/ChatsPage.module.css'; // REMOVE if using Tailwind directly
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api';
+const SOCKET_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000'; // Socket.IO connects to the base URL
 
 const ChatsPage = () => {
-  const { isAuthenticated, user } = useAuth();
-  const socket = useSocket();
+  const router = useRouter();
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [chats, setChats] = useState([]);
-  const [loadingChats, setLoadingChats] = useState(true);
-  const [message, setMessage] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedChat, setSelectedChat] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [currentChat, setCurrentChat] = useState(null);
   const [currentChatId, setCurrentChatId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [loadingChats, setLoadingChats] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [message, setMessage] = useState('');
+  const [notificationType, setNotificationType] = useState('info');
+  const [showNotification, setShowNotification] = useState(false);
 
-  // Debounced search query for real-time search
-  const debouncedSearchQuery = useDebounce(searchQuery, 500); // 500ms debounce delay
+  // States specific to your UserSearch component
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  // No need for showUserSearch, selectedUsersForNewChat, newGroupChatName as they are handled internally by UserSearch
 
-  // Effect to check token on mount
+  const socket = useRef(null);
+
+  // --- Notification Logic ---
+  const displayNotification = useCallback((msg, type = 'info') => {
+    setMessage(msg);
+    setNotificationType(type);
+    setShowNotification(true);
+    const timer = setTimeout(() => {
+      setShowNotification(false);
+      setMessage('');
+    }, 5000);
+    return () => clearTimeout(timer); // Clean up timer
+  }, []);
+
+  // --- Auth & Initial Data Fetching ---
   useEffect(() => {
-    const testToken = localStorage.getItem('token');
-    console.log('ChatsPage: useEffect - Token from localStorage on mount:', testToken);
-    if (!testToken) {
-      console.warn('ChatsPage: useEffect - No token found in localStorage on mount!');
-    }
-  }, []);
-
-  // Callback to fetch chat list from API
-  const fetchChats = useCallback(async () => {
-    setLoadingChats(true);
-    setMessage('');
-    try {
-      const token = localStorage.getItem('token');
-      console.log('ChatsPage: fetchChats - Token retrieved for API call:', token);
-      if (!token) {
-        console.error('ChatsPage: fetchChats - No token found! Cannot fetch chats.');
-        setMessage('Authentication required to view chats.');
-        setLoadingChats(false);
-        return;
-      }
-      const data = await getChats(token);
-      setChats(data);
-    } catch (error) {
-      console.error('ChatsPage: Fetch chats error:', error);
-      setMessage(error.message || 'Failed to load chats.');
-      if (error.message.includes('token') || error.message.includes('403') || error.message.includes('401')) {
-        localStorage.removeItem('token');
-      }
-    } finally {
-      setLoadingChats(false);
-    }
-  }, []);
-
-  // Callback to handle user search (this needs to be defined BEFORE the useEffect that uses it)
-  const handleSearchSubmit = useCallback(async (query) => {
-    if (!query) {
-      setSearchResults([]); // This is good, clears if query is empty
+    const storedToken = localStorage.getItem('token');
+    if (!storedToken) {
+      router.push('/login');
       return;
     }
-    try {
-      const token = localStorage.getItem('token');
-      console.log('ChatsPage: handleSearchSubmit - Token retrieved for searchUsers:', token);
-      if (!token) {
-        console.error('ChatsPage: handleSearchSubmit - No token found! Cannot search users.');
-        return;
-      }
-      const data = await searchUsers(query, token);
-      // Filter out the current user from search results
-      const filteredResults = data.filter(u => u._id !== user?._id);
-      console.log("Filtered Search Results:", filteredResults); // Add this log for debugging duplicates
-      setSearchResults(filteredResults);
-    } catch (error) {
-      console.error('ChatsPage: User search error:', error);
-      setMessage(error.message || 'Failed to search users.');
-    }
-  }, [user]); // `user` is a dependency for filtering
+    setToken(storedToken);
 
-  // Effect to trigger search on debounced query change
-  // This must come AFTER handleSearchSubmit is defined
-  useEffect(() => {
-    // Only search if the debounced query is not empty and user is available
-    if (debouncedSearchQuery && user) {
-      handleSearchSubmit(debouncedSearchQuery);
-    } else if (!debouncedSearchQuery) {
-      setSearchResults([]); // Clear results if query is empty
-    }
-  }, [debouncedSearchQuery, handleSearchSubmit, user]); // Depend on debounced query, the handler, and user
-
-  // Effect to load messages for the selected chat
-  useEffect(() => {
-    const loadMessages = async () => {
-      if (!currentChatId) {
-        setMessages([]); // Clear messages if no chat is selected
-        return;
-      }
-      setLoadingMessages(true);
+    const fetchUserProfileAndChats = async () => {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          console.error('ChatsPage: loadMessages - No token found! Cannot fetch messages.');
-          setLoadingMessages(false);
-          return;
-        }
-        const chatMessages = await getMessagesForChat(currentChatId, token);
-        setMessages(chatMessages);
+        const userProfile = await getUserProfile(storedToken);
+        setUser(userProfile);
+        displayNotification(`Welcome, ${userProfile.username}!`, 'success');
 
-        // Mark messages as read if there are any and current user is in the chat
-        if (chatMessages.length > 0) {
-            await markMessagesAsRead(currentChatId, token);
-            // Update the specific chat's unreadCount in the chats state to 0 after marking as read
-            setChats(prevChats =>
-                prevChats.map(c =>
-                    c._id === currentChatId ? { ...c, unreadCount: 0 } : c
-                )
-            );
-        }
-
+        const initialChats = await getChats(storedToken);
+        setChats(initialChats);
+        setLoadingChats(false);
       } catch (error) {
-        console.error('ChatsPage: Fetch messages error:', error);
-        setMessage(error.message || 'Failed to load messages.');
-      } finally {
-        setLoadingMessages(false);
+        console.error('Failed to fetch user data or chats:', error);
+        displayNotification(error.message || 'Failed to load data. Please log in again.', 'error');
+        localStorage.removeItem('token');
+        router.push('/login');
       }
     };
+    fetchUserProfileAndChats();
+  }, [router, displayNotification]);
 
-    loadMessages();
-  }, [currentChatId]); // Re-run when currentChatId changes
-
-  // Effect to fetch chats when authentication status changes
+  // --- Socket.IO Setup ---
   useEffect(() => {
-    if (isAuthenticated) {
-      console.log('ChatsPage: isAuthenticated is true, fetching chats...');
-      fetchChats();
-    } else {
-      console.log('ChatsPage: isAuthenticated is false, not fetching chats.');
-      setChats([]); // Clear chats if not authenticated
-      setLoadingChats(false);
-    }
-  }, [isAuthenticated, fetchChats]); // `WorkspaceChats` is a dependency as it's a callback
+    if (!user || !token) return;
 
-  // --- Socket.IO specific useEffect for receiving messages and chat list updates ---
-  useEffect(() => {
-    if (socket && user) {
-      console.log('ChatsPage: Socket.IO listener setup.');
+    socket.current = io(SOCKET_URL, {
+      query: { token },
+      transports: ['websocket', 'polling'],
+    });
 
-      // Listener for when a message is received in the current chat
-      const handleReceiveMessage = (newMessage) => {
-        console.log('Socket: Received new message:', newMessage);
+    socket.current.on('connect', () => {
+      console.log('Socket.IO connected:', socket.current.id);
+      socket.current.emit('register_user', user._id);
+    });
 
-        // Update messages array for the currently selected chat
-        if (selectedChat && newMessage.chat === selectedChat._id) {
-          setMessages(prevMessages => {
-            // Prevent adding duplicate optimistic messages by checking _id or temp-id
-            const exists = prevMessages.some(
-              msg => msg._id === newMessage._id ||
-                     (msg.content === newMessage.content && msg.sender._id === newMessage.sender._id && msg._id.startsWith('temp-'))
-            );
-            if (exists) {
-              console.log('Socket: Message already exists (or is optimistic duplicate), not adding to chat window:', newMessage);
-              return prevMessages;
-            }
-            console.log('Socket: Adding new message to display:', newMessage);
-            return [...prevMessages, newMessage];
-          });
+    socket.current.on('disconnect', () => {
+      console.log('Socket.IO disconnected');
+    });
 
-          // Mark as read immediately if the message is from another user and chat is open
-          if (newMessage.sender._id !== user._id) {
-            markMessagesAsRead(selectedChat._id, localStorage.getItem('token'));
-          }
+    socket.current.on('receive_message', (newMessage) => {
+      console.log('Received new message:', newMessage);
+      setMessages(prevMessages => {
+        if (currentChat && newMessage.chat === currentChat._id) {
+          return [...prevMessages, newMessage];
         }
-
-        // --- Update chat list (for sidebar) when any message is received (for current chat OR other chats) ---
-        setChats(prevChats => {
-            let updatedChatFound = false;
-            const newChats = prevChats.map(chat => {
-                if (chat._id === newMessage.chat) {
-                    updatedChatFound = true;
-                    const isCurrentUserSender = newMessage.sender._id === user._id;
-                    let newUnreadCount = chat.unreadCount;
-
-                    // Increment unread count only if:
-                    // 1. The message is NOT sent by the current user
-                    // 2. The chat is NOT currently selected (i.e., it's a message for another chat)
-                    if (!isCurrentUserSender && selectedChat?._id !== chat._id) {
-                        newUnreadCount += 1;
-                    } else {
-                        // If current user sent it, or it's the active chat, reset unread count
-                        newUnreadCount = 0;
-                    }
-
-                    return {
-                        ...chat,
-                        lastMessage: newMessage, // Update last message
-                        updatedAt: newMessage.timestamp, // Update last activity time
-                        unreadCount: newUnreadCount
-                    };
-                }
-                return chat;
-            });
-
-            // Fallback: If the chat for the new message wasn't found in the current list (e.g., brand new chat not yet fetched)
-            if (!updatedChatFound) {
-                console.warn('Socket: Chat for new message not found in existing chats list. Refetching chats...');
-                fetchChats(); // Refetch all chats to ensure new chat is included
-                return prevChats; // Return old state for now, fetchChats will update it.
-            }
-
-            // Move the updated chat to the top and re-sort
-            const chatToMove = newChats.find(c => c._id === newMessage.chat);
-            const otherChats = newChats.filter(c => c._id !== newMessage.chat);
-            return [chatToMove, ...otherChats].sort((a, b) => {
-                const dateA = a.updatedAt ? new Date(a.updatedAt) : new Date(0);
-                const dateB = b.updatedAt ? new Date(b.updatedAt) : new Date(0);
-                return dateB.getTime() - dateA.getTime();
-            });
-        });
-      };
-
-      // Listener for general chat list updates (e.g., a message arrived for a chat not currently open)
-      const handleChatListUpdate = (data) => {
-        console.log('Socket: Chat list update received:', data);
-
-        setChats(prevChats => {
-            let updatedChatFound = false;
-            const newChats = prevChats.map(chat => {
-                if (chat._id === data.chatId) {
-                    updatedChatFound = true;
-                    const isCurrentUserSender = data.senderId === user._id;
-                    let newUnreadCount = chat.unreadCount;
-
-                    // Increment unread count only if the sender is NOT the current user
-                    // AND the chat is NOT currently selected (i.e., message received for a different chat in sidebar)
-                    if (!isCurrentUserSender && selectedChat?._id !== data.chatId) {
-                        newUnreadCount += 1;
-                    } else if (isCurrentUserSender || selectedChat?._id === data.chatId) {
-                        // If current user sent it, or it's the active chat, ensure unread count is 0
-                        newUnreadCount = 0;
-                    }
-
-                    return {
-                        ...chat,
-                        lastMessage: data.lastMessage,
-                        updatedAt: data.lastMessage.timestamp,
-                        unreadCount: newUnreadCount
-                    };
-                }
-                return chat;
-            });
-
-            // Fallback: If the chat for the update wasn't found in the current list
-            if (!updatedChatFound) {
-                console.warn('Socket: Chat for chat_list_update not found in existing chats. Refetching chats...');
-                fetchChats(); // Refetch all chats to ensure it's included
-                return prevChats;
-            }
-
-            // Move the updated chat to the top and re-sort
-            const chatToMove = newChats.find(c => c._id === data.chatId);
-            const otherChats = newChats.filter(c => c._id !== data.chatId);
-            return [chatToMove, ...otherChats].sort((a, b) => {
-                const dateA = a.updatedAt ? new Date(a.updatedAt) : new Date(0);
-                const dateB = b.updatedAt ? new Date(b.updatedAt) : new Date(0);
-                return dateB.getTime() - dateA.getTime();
-            });
-        });
-      };
-
-      // Register Socket.IO event listeners
-      socket.on('receive_message', handleReceiveMessage);
-      socket.on('chat_list_update', handleChatListUpdate);
-
-      // Join the specific chat room when selectedChat changes
-      if (selectedChat) {
-        socket.emit('join_chat', selectedChat._id);
-        console.log(`Socket: Emitted join_chat for chat room: ${selectedChat._id}`);
-      }
-
-      // Join personal user room on mount/login
-      if (user?._id) {
-        socket.emit('join_chat', `user_${user._id}`);
-        console.log(`Socket: Emitted join_chat for personal room: user_${user._id}`);
-      }
-
-      // Cleanup function to remove listeners when component unmounts or dependencies change
-      return () => {
-        console.log('ChatsPage: Socket.IO listener cleanup.');
-        socket.off('receive_message', handleReceiveMessage);
-        socket.off('chat_list_update', handleChatListUpdate);
-      };
-    }
-  }, [socket, selectedChat, user, fetchChats, currentChatId]); // Dependencies for Socket.IO useEffect
-
-  // Handler for search input changes (updates searchQuery state immediately)
-  const handleSearchChange = (e) => {
-    setSearchQuery(e.target.value);
-  };
-
-  // Callback to handle creating a new chat (private or group)
-  const handleCreateChat = useCallback(async (participantIds, type = 'private', name = '') => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.error('ChatsPage: handleCreateChat - No token found! Cannot create chat.');
-        setMessage('Authentication required to create chats.');
-        return;
-      }
-      // Ensure current user is included in participants
-      const participants = [...participantIds];
-      if (user?._id && !participants.includes(user._id)) {
-        participants.push(user._id);
-      }
-
-      const newChatResponse = await createChat(participants, type, name, token);
-      const newChat = newChatResponse.chat; // Extract chat object from response
-
-      setChats(prevChats => {
-        // If chat already exists (e.g., private chat), update it and move to top. Otherwise, add new.
-        const existingChatIndex = prevChats.findIndex(chat => chat._id === newChat._id);
-        let updatedChats;
-
-        if (existingChatIndex > -1) {
-          // Chat already exists, update its details and move it to top
-          const existingChat = { ...prevChats[existingChatIndex], ...newChat, unreadCount: 0 }; // Ensure unread is 0 for newly selected/created
-          updatedChats = [existingChat, ...prevChats.filter((_, i) => i !== existingChatIndex)];
-        } else {
-          // New chat, add it to the beginning with unreadCount 0
-          updatedChats = [{ ...newChat, unreadCount: 0 }, ...prevChats];
-        }
-
-        // Sort to maintain correct order by updatedAt
-        return updatedChats.sort((a, b) => {
-            const dateA = a.updatedAt ? new Date(a.updatedAt) : new Date(0);
-            const dateB = b.updatedAt ? new Date(b.updatedAt) : new Date(0);
-            return dateB.getTime() - dateA.getTime();
-        });
+        return prevMessages;
       });
-      setSelectedChat(newChat); // Select the newly created/found chat
-      setCurrentChatId(newChat._id); // Update currentChatId to trigger message load
-      setMessage('Chat created successfully!');
-      setSearchResults([]); // Clear search results after chat creation
-      setSearchQuery(''); // Clear search query input
-    } catch (error) {
-      console.error('ChatsPage: Create chat error:', error);
-      setMessage(error.message || 'Failed to create chat.');
-    }
-  }, [user]); // `user` is a dependency for handling current user's ID
 
-  // Handler for selecting a chat from the chat list
-  const handleSelectChat = (chat) => {
-    setSelectedChat(chat);
-    setCurrentChatId(chat._id);
-    setMessages([]); // Clear previous chat's messages before loading new ones
-    // The `useEffect` dependent on `currentChatId` will handle fetching messages
-    // and marking them as read.
-  };
-
-  // Callback to handle sending a message
-  const handleSendMessage = useCallback(async (content) => {
-    if (!selectedChat || !content.trim() || !user) return; // Basic validation
-
-    let tempMessageId;
-    let optimisticMessage;
-    const originalLastMessage = selectedChat.lastMessage; // Store original for revert on error
-
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.error('ChatsPage: handleSendMessage - No token found! Cannot send message.');
-        setMessage('Authentication required to send messages.');
-        return;
-      }
-
-      // 1. Create an optimistic message for immediate UI update
-      tempMessageId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      optimisticMessage = {
-        _id: tempMessageId,
-        chat: selectedChat._id,
-        sender: {
-          _id: user._id,
-          username: user.username,
-          profilePicture: user.profilePicture
-        },
-        content: content,
-        timestamp: new Date().toISOString(),
-        readBy: [user._id] // Optimistically mark as read by sender
-      };
-
-      // Optimistically add message to chat window
-      setMessages(prevMessages => [...prevMessages, optimisticMessage]);
-
-      // Optimistically update chat list for the sender (move to top, reset unread)
-      setChats(prevChats => {
-        let updatedChatFound = false;
-        const newChats = prevChats.map(chat => {
-          if (chat._id === selectedChat._id) {
-            updatedChatFound = true;
+      setChats(prevChats =>
+        prevChats.map(chat => {
+          if (chat._id === newMessage.chat) {
+            let newUnreadCount = chat.unreadCount;
+            if (newMessage.sender._id !== user._id && !(currentChat && currentChat._id === chat._id)) {
+              newUnreadCount += 1;
+            }
             return {
               ...chat,
-              lastMessage: optimisticMessage,
-              updatedAt: optimisticMessage.timestamp,
-              unreadCount: 0 // Sender's own active chat is always read
+              lastMessage: {
+                sender: newMessage.sender,
+                content: newMessage.content,
+                timestamp: newMessage.timestamp
+              },
+              unreadCount: newUnreadCount,
+              updatedAt: newMessage.timestamp
             };
           }
           return chat;
-        });
-
-        // Move the updated chat to the top and re-sort
-        const chatToMove = newChats.find(c => c._id === selectedChat._id);
-        const otherChats = newChats.filter(c => c._id !== selectedChat._id);
-        if (chatToMove) {
-          return [chatToMove, ...otherChats].sort((a, b) => {
-            const dateA = a.updatedAt ? new Date(a.updatedAt) : new Date(0);
-            const dateB = b.updatedAt ? new Date(b.updatedAt) : new Date(0);
-            return dateB.getTime() - dateA.getTime();
-          });
-        }
-        return newChats; // Fallback if chatToMove is undefined
-      });
-
-      // 2. Send message via REST API (backend will then emit via Socket.IO)
-      const sentMessage = await sendMessage(selectedChat._id, content, token);
-      console.log('[Frontend] Message sent successfully to backend (via REST API):', sentMessage);
-
-      // 3. Replace optimistic message with server-returned one (which has a real _id and timestamp)
-      setMessages(prevMessages =>
-        prevMessages.map(msg => (msg._id === tempMessageId ? sentMessage : msg))
+        })
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
       );
+    });
 
-      // 4. Re-confirm selectedChat's lastMessage/unreadCount (safe redundancy for optimistic update consistency)
-      setSelectedChat(prevSelectedChat => {
-        if (!prevSelectedChat || prevSelectedChat._id !== selectedChat._id) return prevSelectedChat;
-        return {
-          ...prevSelectedChat,
-          lastMessage: sentMessage,
-          updatedAt: sentMessage.timestamp,
-          unreadCount: 0
-        };
+    socket.current.on('chatCreated', (newChatData) => {
+      console.log('New chat created/received:', newChatData);
+      setChats(prevChats => {
+        if (!prevChats.some(chat => chat._id === newChatData._id)) {
+          return [newChatData, ...prevChats].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+        }
+        return prevChats.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
       });
+      displayNotification(`New chat: ${newChatData.name || 'Private Chat'}`, 'info');
+    });
 
+    socket.current.on('group_members_updated', (updatedChatData) => {
+      console.log('Group members updated:', updatedChatData);
+      setChats(prevChats =>
+        prevChats.map(chat =>
+          chat._id === updatedChatData._id ? updatedChatData : chat
+        ).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+      );
+      if (currentChat && currentChat._id === updatedChatData._id) {
+        setCurrentChat(updatedChatData);
+        displayNotification(updatedChatData.lastMessage?.content || 'Group members updated.', 'info');
+      }
+    });
+
+    socket.current.on('chatDeleted', (deletedChatId) => {
+      console.log('Chat deleted:', deletedChatId);
+      setChats(prevChats => prevChats.filter(chat => chat._id !== deletedChatId));
+      if (currentChat && currentChat._id === deletedChatId) {
+        setCurrentChat(null);
+        setCurrentChatId(null);
+        setMessages([]);
+        displayNotification('You have been removed from the chat.', 'warning');
+      } else {
+        displayNotification('A chat was deleted.', 'warning');
+      }
+    });
+
+    return () => {
+      if (socket.current) {
+        socket.current.off('connect');
+        socket.current.off('disconnect');
+        socket.current.off('receive_message');
+        socket.current.off('chatCreated');
+        socket.current.off('group_members_updated');
+        socket.current.off('chatDeleted');
+        socket.current.disconnect();
+      }
+    };
+  }, [user, token, currentChat, displayNotification]);
+
+  // --- Load Messages for Current Chat ---
+  const loadMessages = useCallback(async (chatIdToLoad) => {
+    if (!chatIdToLoad || !token) {
+      setMessages([]);
+      return;
+    }
+    setLoadingMessages(true);
+    try {
+      const chatMessages = await getMessagesForChat(chatIdToLoad, token);
+      setMessages(chatMessages);
+      await markMessagesAsRead(chatIdToLoad, token);
+      setChats(prevChats =>
+        prevChats.map(c =>
+          c._id === chatIdToLoad ? { ...c, unreadCount: 0 } : c
+        )
+      );
+      setCurrentChat(prevChat =>
+        prevChat && prevChat._id === chatIdToLoad ? { ...prevChat, unreadCount: 0 } : prevChat
+      );
     } catch (error) {
-      console.error('ChatsPage: Send message error:', error);
-      setMessage(error.message || 'Failed to send message.');
+      console.error('Fetch messages error:', error);
+      displayNotification(error.message || 'Failed to load messages.', 'error');
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, [token, displayNotification]);
 
-      // Revert optimistic changes on error
-      if (tempMessageId) {
-        setMessages(prevMessages => prevMessages.filter(msg => msg._id !== tempMessageId));
-        setChats(prevChats => {
-          const revertedChats = prevChats.map(chat => {
-            if (chat._id === selectedChat._id) {
-              return {
-                ...chat,
-                lastMessage: originalLastMessage, // Revert last message
-                updatedAt: originalLastMessage?.timestamp || chat.createdAt, // Revert last activity time
-                unreadCount: chat.unreadCount // Keep original unread count
-              };
-            }
-            return chat;
-          });
-          // Re-sort the chats after reverting
-          return revertedChats.sort((a, b) => {
-            const dateA = a.updatedAt ? new Date(a.updatedAt) : new Date(0);
-            const dateB = b.updatedAt ? new Date(b.updatedAt) : new Date(0);
-            return dateB.getTime() - dateA.getTime();
-          });
-        });
+  useEffect(() => {
+    if (currentChatId) {
+      loadMessages(currentChatId);
+    }
+  }, [currentChatId, loadMessages]);
+
+  // --- Chat Selection Handler ---
+  const handleChatSelect = useCallback((chat) => {
+    setCurrentChat(chat);
+    setCurrentChatId(chat._id);
+    if (socket.current) {
+      // If there was a previously selected chat, tell the server to leave that room
+      // The server-side will handle if the socket is actually in that room or not.
+      if (currentChatId) { // Check if a previous chat was selected
+        socket.current.emit('leave_chat', currentChatId);
+      }
+      // Tell the server to join the new chat's room
+      socket.current.emit('join_chat', chat._id);
+    }
+  }, [currentChatId]);
+
+  // --- Message Sending ---
+  const handleSendMessage = useCallback(async (chatId, content) => {
+    try {
+      await sendMessage(chatId, content, token);
+    } catch (error) {
+      console.error('Send message error:', error);
+      displayNotification(error.message || 'Failed to send message.', 'error');
+    }
+  }, [token, displayNotification]);
+
+  // --- User Search & Create Chat from UserSearch component ---
+  const handleSearchInputChange = useCallback(async (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    if (!query) {
+      setSearchResults([]);
+      return;
+    }
+    try {
+      const data = await searchUsers(query, token);
+      // Filter out self from search results
+      const filtered = data.filter(u => u._id !== user._id);
+      setSearchResults(filtered);
+    } catch (error) {
+      console.error('User search error:', error);
+      displayNotification(error.message || 'Failed to search users.', 'error');
+    }
+  }, [token, user, displayNotification]);
+
+
+  // THIS IS THE UNIVERSAL onCreateChat function called by UserSearch
+  const handleCreateNewChatFromUserSearch = useCallback(async (participantIds, type, name = '', existingChatId = null) => {
+    // If existingChatId is provided (from private chat check), just select it
+    if (existingChatId) {
+      const foundChat = chats.find(c => c._id === existingChatId);
+      if (foundChat) {
+          handleChatSelect(foundChat);
+          return;
       }
     }
-  }, [selectedChat, user]); // Dependencies for `handleSendMessage`
 
-  // Render authentication message if not authenticated
-  if (!isAuthenticated) {
-    return (
-      <Layout title="Redirecting...">
-        <div className="flex justify-center items-center h-screen">
-          <p className="text-xl text-blue-500">Please log in to view chats.</p>
-        </div>
-      </Layout>
-    );
+    // Add current user to participants list for API call if not already included
+    if (!participantIds.includes(user._id)) {
+      participantIds.push(user._id);
+    }
+
+    try {
+      const result = await createChat(participantIds, type, name, token);
+      displayNotification(result.message || `${type === 'group' ? 'Group' : 'Private'} chat created successfully!`, 'success');
+
+      // The `chatCreated` socket event will handle adding it to the list
+      // and we can select it here after the socket processes it.
+      // For now, let's just make sure it's the current chat.
+      setChats(prevChats => {
+        const updatedChats = [result.chat, ...prevChats.filter(c => c._id !== result.chat._id)];
+        return updatedChats.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      });
+      handleChatSelect(result.chat); // Select the newly created/found chat
+      setSearchQuery(''); // Clear search bar after creation
+      setSearchResults([]); // Clear search results
+
+    } catch (error) {
+      console.error('Create chat error:', error);
+      displayNotification(error.message || 'Failed to create chat.', 'error');
+    }
+  }, [chats, user, token, displayNotification, handleChatSelect]); // Include chats in dependency array
+
+  // Handle re-fetching chat details after group member changes
+  const handleChatWindowUpdate = useCallback(async (chatId) => {
+    if (!token) return;
+    try {
+        const updatedChats = await getChats(token);
+        setChats(updatedChats);
+        const updatedCurrentChat = updatedChats.find(c => c._id === chatId);
+        if (updatedCurrentChat) {
+            setCurrentChat(updatedCurrentChat);
+        }
+    } catch (error) {
+        console.error('Error re-fetching chats after update:', error);
+        displayNotification('Failed to refresh chat list.', 'error');
+    }
+  }, [token, displayNotification]);
+
+
+  if (!user || loadingChats) {
+    return <div className="flex justify-center items-center h-screen text-lg text-gray-700">Loading chat page...</div>;
   }
 
-  // Main component render
   return (
-    <Layout title="Chats">
-      <div className="flex h-[calc(100vh-64px)]">
-        {/* Left pane: User Search and Chat List */}
-        <div className="w-1/3 border-r border-gray-700 bg-gray-800 p-4 flex flex-col">
-          <h2 className="text-2xl font-semibold mb-4 text-white">Chats</h2>
-          {message && (
-            <div className={`p-2 mb-4 rounded-md ${message.includes('success') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {message}
-            </div>
-          )}
+    // Replaced styles.chatsPage with Tailwind classes
+    <div className="flex h-screen bg-gray-100 font-sans">
+      {showNotification && (
+        <Notification
+          message={message}
+          type={notificationType}
+          onClose={() => setShowNotification(false)}
+        />
+      )}
 
-          <div className="mb-4">
-            <UserSearch
-              query={searchQuery}
-              onSearchChange={handleSearchChange}
-              // Form's onSubmit is now just preventing default, search logic handled by useEffect
-              onSearchSubmit={(e) => { e.preventDefault(); }}
-              searchResults={searchResults}
-              onCreateChat={handleCreateChat}
-            />
-            {/* Display search results if available */}
-            {searchResults.length > 0 && (
-              <div className="mt-2 bg-gray-700 border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto custom-scrollbar">
-                {searchResults.map(resultUser => (
-                  <div key={resultUser._id} className="p-2 border-b border-gray-600 last:border-b-0 hover:bg-gray-600 cursor-pointer flex justify-between items-center">
-                    {/* CSS for truncating long usernames/emails */}
-                    <div className="flex flex-col min-w-0 mr-2"> {/* Added a div to contain and constrain text */}
-                        <span className="text-white font-medium truncate">{resultUser.username}</span>
-                        <span className="text-gray-400 text-sm truncate">{resultUser.email}</span>
-                    </div>
-                    {user && user._id && resultUser._id !== user._id && (
-                        <button
-                          onClick={() => handleCreateChat([resultUser._id])}
-                          className="flex-shrink-0 ml-2 px-3 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-                        >
-                          Chat
-                        </button>
+      {/* Replaced styles.chatSidebar with Tailwind classes */}
+      <aside className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col p-4 shadow-lg overflow-y-auto">
+        {/* Replaced styles.sidebarHeader with Tailwind classes */}
+        <div className="flex justify-between items-center mb-5 pb-3 border-b border-gray-700">
+          <h3 className="text-white text-xl font-semibold">Welcome, {user.username}!</h3>
+          <button
+            onClick={() => {
+              localStorage.removeItem('token');
+              router.push('/login');
+            }}
+            // Replaced styles.logoutButton with Tailwind classes
+            className="bg-red-600 text-white px-3 py-2 rounded-md hover:bg-red-700 transition-colors"
+          >
+            Logout
+          </button>
+        </div>
+
+        {/* User Search Component */}
+        <div className="mb-4">
+          <UserSearch
+            query={searchQuery}
+            onSearchChange={handleSearchInputChange}
+            searchResults={searchResults}
+            onCreateChat={handleCreateNewChatFromUserSearch}
+            chats={chats} // Pass existing chats to UserSearch for private chat check
+            currentUser={user} // Pass current user for private chat check
+            showNotification={displayNotification} // Pass notification handler
+          />
+        </div>
+
+        {/* Replaced styles.chatList with Tailwind classes */}
+        <div className="flex-grow overflow-y-auto custom-scrollbar">
+          {chats.length === 0 && !loadingChats ? (
+            <p className="text-center text-gray-400 p-5">No chats yet. Start a new one!</p>
+          ) : (
+            chats.map(chat => {
+              let chatDisplayName = chat.name;
+              let chatDisplayImage = '/default-group-avatar.png';
+
+              if (chat.type === 'private' && chat.recipient) {
+                chatDisplayName = chat.recipient.username;
+                chatDisplayImage = chat.recipient.profilePicture || '/default-avatar.png';
+              } else if (chat.type === 'private' && chat.participants.length === 1 && chat.participants[0]._id === user._id) {
+                chatDisplayName = `${user.username} (You)`;
+                chatDisplayImage = user.profilePicture || '/default-avatar.png';
+              }
+
+              return (
+                // Replaced styles.chatListItem and styles.activeChat with Tailwind classes
+                <div
+                  key={chat._id}
+                  onClick={() => handleChatSelect(chat)}
+                  className={`flex items-center p-3 border-b border-gray-700 cursor-pointer hover:bg-gray-700 transition-colors relative
+                    ${currentChatId === chat._id ? 'bg-gray-700 border-l-4 border-blue-500' : ''}`}
+                >
+                  {/* Replaced styles.chatAvatar with Tailwind classes */}
+                  <img src={chatDisplayImage} alt={chatDisplayName} className="w-12 h-12 rounded-full mr-4 object-cover border border-gray-600" />
+                  {/* Replaced styles.chatInfo with Tailwind classes */}
+                  <div className="flex-grow flex flex-col min-w-0">
+                    {/* Replaced styles.chatName with Tailwind classes */}
+                    <span className="font-semibold text-white truncate">{chatDisplayName}</span>
+                    {chat.lastMessage && (
+                      // Replaced styles.lastMessage with Tailwind classes
+                      <span className="text-sm text-gray-400 truncate">
+                        {chat.lastMessage.sender._id === user._id ? 'You: ' : `${chat.lastMessage.sender.username}: `}
+                        {chat.lastMessage.content}
+                      </span>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Chat List display */}
-          {loadingChats ? (
-            <p className="text-center text-gray-500">Loading chats...</p>
-          ) : (
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              <ChatList chats={chats} onSelectChat={handleSelectChat} selectedChatId={selectedChat?._id} currentUser={user} />
-            </div>
+                  {chat.unreadCount > 0 && (
+                    // Replaced styles.unreadBadge with Tailwind classes
+                    <span className="bg-blue-500 text-white rounded-full px-2 py-1 text-xs font-bold absolute top-2 right-2 min-w-[24px] text-center">
+                      {chat.unreadCount}
+                    </span>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
+      </aside>
 
-        {/* Right pane for Chat Window */}
-        <div className="w-2/3 flex flex-col bg-gray-900">
-          {selectedChat ? (
-            <ChatWindow
-              chat={selectedChat}
-              messages={messages}
-              onSendMessage={handleSendMessage}
-              currentUser={user}
-              loadingMessages={loadingMessages}
-            />
-          ) : (
-            <div className="flex justify-center items-center h-full text-gray-500 text-xl">
-              Select a chat to start messaging
-            </div>
-          )}
-        </div>
-      </div>
-    </Layout>
+      {/* Replaced styles.chatMain with Tailwind classes */}
+      <main className="flex-grow flex flex-col bg-gray-900">
+        <ChatWindow
+          currentChat={currentChat}
+          messages={messages}
+          user={user}
+          onSendMessage={handleSendMessage}
+          loadingMessages={loadingMessages}
+          showNotification={displayNotification}
+          token={token}
+          onChatUpdate={handleChatWindowUpdate}
+        />
+      </main>
+    </div>
   );
 };
 

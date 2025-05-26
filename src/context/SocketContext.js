@@ -1,9 +1,9 @@
-// frontend/context/SocketContext.js
+// frontend/contexts/SocketContext.js
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import io from 'socket.io-client';
-import { useAuth } from './AuthContext'; // To get the user ID
+import { useAuth } from './AuthContext'; // Import useAuth to get the token
 
-const SocketContext = createContext(null);
+const SocketContext = createContext();
 
 export const useSocket = () => {
   return useContext(SocketContext);
@@ -11,49 +11,63 @@ export const useSocket = () => {
 
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
-  const { user, isAuthenticated } = useAuth(); // Get user from AuthContext
-  const socketRef = useRef(null); // Use a ref to hold the socket instance
+  const { isAuthenticated, token, user } = useAuth(); // Get token and user from AuthContext
+  const initialConnectAttempted = useRef(false); // To prevent multiple initial connection attempts
 
   useEffect(() => {
-    // Only connect if authenticated and socket is not already connected
-    if (isAuthenticated && user && !socketRef.current) {
+    // Only attempt to connect if authenticated, we have a token,
+    // and we haven't already attempted an initial connection
+    if (isAuthenticated && token && !initialConnectAttempted.current) {
       console.log('SocketProvider: Attempting to connect to Socket.IO...');
+      initialConnectAttempted.current = true; // Mark attempt
+
       const newSocket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000', {
-        // You can add auth headers here if your socket server needs them
-        // auth: { token: localStorage.getItem('token') }
+        query: { token }, // Pass the token in the query string for authentication
+        transports: ['websocket'], // Prefer websocket for real-time
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
       });
 
       newSocket.on('connect', () => {
-        console.log('Socket.IO Connected:', newSocket.id);
-        // Join a personal room for general notifications (e.g., chat list updates)
-        newSocket.emit('join_chat', `user_${user._id}`);
+        console.log(`Socket.IO connected: ${newSocket.id}`);
       });
 
-      newSocket.on('disconnect', () => {
-        console.log('Socket.IO Disconnected');
+      newSocket.on('connect_error', (err) => {
+        console.error('Socket.IO Connect Error:', err);
+        // Reset initialConnectAttempted if connection fails, to allow re-attempt
+        initialConnectAttempted.current = false;
       });
 
-      newSocket.on('connect_error', (error) => {
-        console.error('Socket.IO Connect Error:', error);
+      newSocket.on('disconnect', (reason) => {
+        console.log('Socket.IO Disconnected:', reason);
+        // If disconnected due to auth error, reset state to allow new connection
+        if (reason === 'io server disconnect') {
+            console.log('Server initiated disconnect, might be auth error.');
+            initialConnectAttempted.current = false; // Allow re-attempt on next render cycle
+        }
       });
 
       setSocket(newSocket);
-      socketRef.current = newSocket; // Store in ref
 
-      // Cleanup function
+      // Clean up on unmount or token change
       return () => {
         console.log('SocketProvider: Disconnecting Socket.IO...');
+        newSocket.off('connect');
+        newSocket.off('connect_error');
+        newSocket.off('disconnect');
         newSocket.disconnect();
-        socketRef.current = null;
-      };
-    } else if (!isAuthenticated && socketRef.current) {
-        // Disconnect if user logs out
-        console.log('SocketProvider: User logged out, disconnecting socket...');
-        socketRef.current.disconnect();
-        socketRef.current = null;
         setSocket(null);
+        initialConnectAttempted.current = false; // Reset for next potential connection
+      };
+    } else if (!isAuthenticated && socket) {
+        // If user logs out, disconnect the socket
+        console.log('SocketProvider: User logged out, disconnecting socket.');
+        socket.disconnect();
+        setSocket(null);
+        initialConnectAttempted.current = false; // Reset for next login
     }
-  }, [isAuthenticated, user]); // Depend on isAuthenticated and user object
+  }, [isAuthenticated, token, socket]); // Depend on isAuthenticated and token
 
   return (
     <SocketContext.Provider value={socket}>

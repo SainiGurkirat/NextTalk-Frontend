@@ -59,6 +59,7 @@ export const searchUsers = async (query, token) => {
     return handleResponse(response);
 };
 
+// frontend/lib/api.js
 export const createChat = async (participantIds, type, name, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats`, {
         method: 'POST',
@@ -66,7 +67,7 @@ export const createChat = async (participantIds, type, name, token) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ participantIds, type, name }),
+        body: JSON.stringify({ participants: participantIds, type, name }), // <--- CHANGE HERE
     });
     return handleResponse(response);
 };
@@ -99,6 +100,56 @@ export const markMessagesAsRead = async (chatId, token) => {
             'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({}), // Empty body for a POST request that doesn't need data
+    });
+    return handleResponse(response);
+};
+
+// Add these functions somewhere in your frontend/lib/api.js file,
+// alongside other functions like loginUser, getChats, searchUsers, etc.
+
+export const getGroupMembers = async (chatId, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+    });
+    return handleResponse(response);
+};
+
+export const addGroupMembers = async (chatId, memberIds, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ memberIds }),
+    });
+    return handleResponse(response);
+};
+
+export const removeGroupMember = async (chatId, memberId, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members/${memberId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+    });
+    return handleResponse(response);
+};
+
+export const updateGroupChat = async (chatId, updateData, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/group/${chatId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(updateData),
+    });
+    return handleResponse(response);
+};
+
+export const deleteChat = async (chatId, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
     });
     return handleResponse(response);
 };

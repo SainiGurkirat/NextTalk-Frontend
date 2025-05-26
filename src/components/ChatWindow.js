@@ -1,102 +1,276 @@
 // frontend/components/ChatWindow.js
-import React, { useRef, useEffect } from 'react';
-import Image from 'next/image';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ChatInput from './ChatInput';
+import { getGroupMembers, addGroupMembers, removeGroupMember, searchUsers } from '../lib/api'; // Import new API calls
+import Notification from './Notification'; // Assuming you use this
+import UserSearch from './UserSearch'; // Reuse UserSearch for adding members
 
-const ChatWindow = ({ chat, messages, onSendMessage, currentUser, loadingMessages }) => {
-  const [inputContent, setInputContent] = React.useState('');
-  const messagesEndRef = useRef(null);
+const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessages, showNotification, token, onChatUpdate }) => {
+    const messagesEndRef = useRef(null);
+    const [showMembersModal, setShowMembersModal] = useState(false);
+    const [groupMembers, setGroupMembers] = useState([]);
+    const [isCurrentUserAdmin, setIsCurrentUserAdmin] = useState(false);
 
-  // Effect to scroll to the bottom when messages change.
-  // We explicitly avoid using `loadingMessages` as a dependency here
-  // to prevent unnecessary re-runs or flashes of "Loading messages...".
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight;
-    }
-  }, [messages]); // <-- Removed loadingMessages from dependencies
+    // State for adding members via search
+    const [addMemberSearchQuery, setAddMemberSearchQuery] = useState('');
+    const [addMemberSearchResults, setAddMemberSearchResults] = useState([]);
+    const [selectedUsersToAdd, setSelectedUsersToAdd] = useState([]);
 
-  const handleInputChange = (e) => {
-    setInputContent(e.target.value);
-  };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (inputContent.trim()) {
-      onSendMessage(inputContent.trim());
-      setInputContent('');
-    }
-  };
+    // Scroll to latest message whenever messages change
+    useEffect(() => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [messages]);
 
-  const chatDisplayName = chat.isGroupChat
-    ? chat.name
-    : chat.participants.find(p => p._id !== currentUser._id)?.username || 'Unknown User';
+    // Check if current user is admin whenever currentChat or user changes
+    useEffect(() => {
+        if (currentChat && user && currentChat.type === 'group') {
+            setIsCurrentUserAdmin(currentChat.admins.includes(user._id));
+        } else {
+            setIsCurrentUserAdmin(false); // Not an admin for private chats
+        }
+    }, [currentChat, user]);
 
-  return (
-    <div className="flex flex-col h-full">
-      {/* Chat Header */}
-      <div className="bg-gray-800 p-4 border-b border-gray-700 flex items-center">
-        <div className="relative w-10 h-10 rounded-full bg-gray-500 flex items-center justify-center text-white font-bold text-lg mr-3">
-          {chat.isGroupChat ? chatDisplayName[0]?.toUpperCase() : chatDisplayName[0]?.toUpperCase()}
-        </div>
-        <h2 className="text-xl font-semibold text-white">{chatDisplayName}</h2>
-      </div>
 
-      {/* Messages Display Area */}
-      <div
-        ref={messagesEndRef}
-        className="flex-1 p-4 overflow-y-auto custom-scrollbar flex flex-col space-y-2"
-      >
-        {/* Conditional rendering for loading messages */}
-        {loadingMessages ? (
-          <p className="text-center text-gray-500">Loading messages...</p>
-        ) : messages.length === 0 ? (
-          <p className="text-center text-gray-500">Start a conversation!</p>
-        ) : (
-          messages.map((msg, index) => (
-            <div
-              key={msg._id || index}
-              className={`flex ${msg.sender._id === currentUser._id ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[70%] p-3 rounded-lg shadow-md ${
-                  msg.sender._id === currentUser._id
-                    ? 'bg-blue-500 text-white rounded-br-none'
-                    : 'bg-gray-700 text-gray-100 rounded-bl-none'
-                }`}
-              >
-                {msg.sender._id !== currentUser._id && (
-                  <p className="font-semibold text-sm mb-1">
-                    {msg.sender.username}
-                  </p>
-                )}
-                <p className="text-base break-words">{msg.content}</p>
-                <span className="text-xs text-right block mt-1 opacity-75">
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
+    // Function to fetch and update group members
+    const fetchGroupMembers = useCallback(async () => {
+        if (currentChat && currentChat.type === 'group' && token) {
+            try {
+                const members = await getGroupMembers(currentChat._id, token);
+                setGroupMembers(members);
+            } catch (error) {
+                console.error('Failed to fetch group members:', error);
+                showNotification(error.message || 'Failed to load group members.', 'error');
+            }
+        }
+    }, [currentChat, token, showNotification]);
+
+    // Fetch members when modal opens or current chat changes
+    useEffect(() => {
+        if (showMembersModal && currentChat && currentChat.type === 'group') {
+            fetchGroupMembers();
+        }
+    }, [showMembersModal, currentChat, fetchGroupMembers]);
+
+
+    // Handle adding members search
+    const handleAddMemberSearch = useCallback(async (e) => {
+        const query = e.target.value;
+        setAddMemberSearchQuery(query);
+        if (!query) {
+            setAddMemberSearchResults([]);
+            return;
+        }
+        try {
+            const data = await searchUsers(query, token);
+            // Filter out users already in the current chat and self
+            const currentMemberIds = new Set(groupMembers.map(m => m._id));
+            const filtered = data.filter(u => u._id !== user._id && !currentMemberIds.has(u._id));
+            setAddMemberSearchResults(filtered);
+        } catch (error) {
+            console.error('Add member search error:', error);
+            showNotification(error.message || 'Failed to search users to add.', 'error');
+        }
+    }, [token, user, groupMembers, showNotification]);
+
+    const handleSelectUserToAdd = (selectedUser) => {
+        // Simple add/remove toggle for now, could be a multi-select checkbox list
+        setSelectedUsersToAdd(prev =>
+            prev.some(u => u._id === selectedUser._id)
+                ? prev.filter(u => u._id !== selectedUser._id)
+                : [...prev, selectedUser]
+        );
+    };
+
+    const handleConfirmAddMembers = async () => {
+        if (selectedUsersToAdd.length === 0) {
+            showNotification('No users selected to add.', 'info');
+            return;
+        }
+        try {
+            const newMemberIds = selectedUsersToAdd.map(u => u._id);
+            await addGroupMembers(currentChat._id, newMemberIds, token);
+            showNotification('Members added successfully!', 'success');
+            setSelectedUsersToAdd([]); // Clear selected
+            setAddMemberSearchQuery(''); // Clear search query
+            setAddMemberSearchResults([]); // Clear search results
+
+            await fetchGroupMembers(); // Re-fetch group members to update the list
+            onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details
+        } catch (error) {
+            console.error('Error adding members:', error);
+            showNotification(error.message || 'Failed to add members.', 'error');
+        }
+    };
+
+
+    // Handle removing a member
+    const handleRemoveMember = async (memberId) => {
+        if (!window.confirm(`Are you sure you want to remove this member?`)) {
+            return;
+        }
+        try {
+            await removeGroupMember(currentChat._id, memberId, token);
+            showNotification('Member removed successfully!', 'success');
+            await fetchGroupMembers(); // Re-fetch group members to update the list
+            onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details
+             // If the removed member was the current user, they'll be redirected by chatDeleted socket event
+        } catch (error) {
+            console.error('Error removing member:', error);
+            showNotification(error.message || 'Failed to remove member.', 'error');
+        }
+    };
+
+
+    if (!currentChat) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                <p className="text-xl">Select a chat to start messaging.</p>
+                <p className="text-sm">Or start a new private/group chat from the sidebar.</p>
             </div>
-          ))
-        )}
-      </div>
+        );
+    }
 
-      {/* Message Input Area */}
-      <form onSubmit={handleSubmit} className="bg-gray-800 p-4 border-t border-gray-700 flex items-center">
-        <input
-          type="text"
-          value={inputContent}
-          onChange={handleInputChange}
-          placeholder="Type a message..."
-          className="flex-1 p-3 rounded-lg bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          type="submit"
-          className="ml-4 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          Send
-        </button>
-      </form>
-    </div>
-  );
+    const chatDisplayName = currentChat.type === 'private' && currentChat.recipient
+        ? currentChat.recipient.username
+        : currentChat.name;
+
+    const chatDisplayImage = currentChat.type === 'private' && currentChat.recipient
+        ? currentChat.recipient.profilePicture || '/default-avatar.png'
+        : '/default-group-avatar.png';
+
+
+    return (
+        <div className="flex flex-col h-full bg-gray-900 text-white">
+            {/* Chat Header */}
+            <div className="flex items-center p-4 bg-gray-800 border-b border-gray-700 shadow-md">
+                <img src={chatDisplayImage} alt={chatDisplayName} className="w-10 h-10 rounded-full mr-3 object-cover" />
+                <h2 className="text-xl font-semibold">{chatDisplayName}</h2>
+                {currentChat.type === 'group' && (
+                    <button
+                        onClick={() => setShowMembersModal(true)}
+                        className="ml-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-colors"
+                    >
+                        {isCurrentUserAdmin ? 'Manage Members' : 'View Members'}
+                    </button>
+                )}
+            </div>
+
+            {/* Messages Area */}
+            <div className="flex-grow p-4 overflow-y-auto custom-scrollbar">
+                {loadingMessages ? (
+                    <div className="text-center text-gray-500">Loading messages...</div>
+                ) : messages.length === 0 ? (
+                    <div className="text-center text-gray-500">No messages yet. Say hi!</div>
+                ) : (
+                    messages.map((msg) => (
+                        <div
+                            key={msg._id}
+                            className={`flex mb-4 ${msg.sender._id === user._id ? 'justify-end' : 'justify-start'}`}
+                        >
+                            <div
+                                className={`flex items-end max-w-[70%] ${msg.sender._id === user._id ? 'flex-row-reverse' : 'flex-row'}`}
+                            >
+                                <img
+                                    src={msg.sender.profilePicture || '/default-avatar.png'}
+                                    alt={msg.sender.username}
+                                    className="w-8 h-8 rounded-full object-cover mx-2"
+                                />
+                                <div
+                                    className={`p-3 rounded-lg shadow-md ${msg.sender._id === user._id ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-100'
+                                        }`}
+                                >
+                                    <p className="font-semibold text-sm mb-1">{msg.sender.username}</p>
+                                    <p className="break-words">{msg.content}</p>
+                                    <span className="block text-right text-xs mt-1 opacity-75">
+                                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                )}
+                <div ref={messagesEndRef} /> {/* Scroll target */}
+            </div>
+
+            {/* Chat Input */}
+            <ChatInput onSendMessage={(content) => onSendMessage(currentChat._id, content)} />
+
+            {/* Members Modal */}
+            {showMembersModal && currentChat.type === 'group' && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+                    <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+                        <div className="flex justify-between items-center border-b border-gray-700 pb-3 mb-4">
+                            <h3 className="text-2xl font-bold text-white">Group Members ({groupMembers.length})</h3>
+                            <button onClick={() => setShowMembersModal(false)} className="text-gray-400 hover:text-white text-3xl font-bold">&times;</button>
+                        </div>
+
+                        {/* Current Members List */}
+                        <div className="flex-grow overflow-y-auto custom-scrollbar mb-4 pr-2">
+                            {groupMembers.length > 0 ? (
+                                groupMembers.map(member => (
+                                    <div key={member._id} className="flex items-center justify-between p-2 rounded-md hover:bg-gray-700 transition-colors mb-2">
+                                        <div className="flex items-center">
+                                            <img src={member.profilePicture || '/default-avatar.png'} alt={member.username} className="w-10 h-10 rounded-full mr-3 object-cover" />
+                                            <span className="text-lg text-white">{member.username}</span>
+                                            {member.isAdmin && <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">Admin</span>}
+                                        </div>
+                                        {isCurrentUserAdmin && member._id !== user._id && ( // Admins can remove, but not themselves
+                                            <button
+                                                onClick={() => handleRemoveMember(member._id)}
+                                                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-sm transition-colors"
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-gray-400 text-center">No members found.</p>
+                            )}
+                        </div>
+
+                        {/* Add Members Section (only for admins) */}
+                        {isCurrentUserAdmin && (
+                            <div className="border-t border-gray-700 pt-4 mt-4">
+                                <h4 className="text-xl font-semibold mb-3 text-white">Add Members</h4>
+                                <UserSearch
+                                    query={addMemberSearchQuery}
+                                    onSearchChange={handleAddMemberSearch}
+                                    searchResults={addMemberSearchResults}
+                                    onSelectUser={handleSelectUserToAdd} // New prop for selecting users
+                                    selectedUsers={selectedUsersToAdd} // New prop to indicate selected
+                                    // onCreateChat is not needed here as we're adding to existing group
+                                    // We don't need chats or currentUser for this specific instance of UserSearch
+                                />
+                                {selectedUsersToAdd.length > 0 && (
+                                    <div className="mt-3">
+                                        <p className="text-gray-300 mb-2">Selected to add:</p>
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                            {selectedUsersToAdd.map(u => (
+                                                <span key={u._id} className="bg-blue-700 text-white px-3 py-1 rounded-full text-sm flex items-center">
+                                                    {u.username}
+                                                    <button onClick={() => handleSelectUserToAdd(u)} className="ml-2 text-white hover:text-gray-300">&times;</button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <button
+                                            onClick={handleConfirmAddMembers}
+                                            className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-md font-semibold transition-colors"
+                                        >
+                                            Add Selected Members
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 };
 
 export default ChatWindow;
