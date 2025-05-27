@@ -1,7 +1,7 @@
 // frontend/components/ChatWindow.js
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ChatMessage from './ChatMessage'; // Assuming ChatMessage component exists
-import ChatInput from './ChatInput';
+import ChatInput from './ChatInput'; // Re-import ChatInput
 import { getGroupMembers, addGroupMembers, removeGroupMember, searchUsers } from '../lib/api';
 import Notification from './Notification'; // Assuming you have this
 import UserSearch from './UserSearch'; // Reuse UserSearch for adding members
@@ -26,17 +26,16 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
     // Scroll to latest message whenever messages or the currentChat changes
     useEffect(() => {
         if (messagesEndRef.current) {
-            // Corrected: Use 'smooth' behavior and remove invalid 'position' property
             messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
         }
-    }, [messages, currentChat]); // Added currentChat to dependencies for initial scroll on chat selection
+    }, [messages, currentChat]);
 
     // Check if current user is admin whenever currentChat or user changes
     useEffect(() => {
         if (currentChat && user && currentChat.type === 'group') {
-            setIsCurrentUserAdmin(currentChat.admins?.includes(user._id)); // Use optional chaining for safety
+            setIsCurrentUserAdmin(currentChat.admins?.includes(user._id));
         } else {
-            setIsCurrentUserAdmin(false); // Not an admin for private chats
+            setIsCurrentUserAdmin(false);
         }
     }, [currentChat, user]);
 
@@ -46,7 +45,6 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
         if (currentChat && currentChat.type === 'group' && token) {
             try {
                 const members = await getGroupMembers(currentChat._id, token);
-                // Ensure members have isAdmin property if available from backend
                 setGroupMembers(members);
             } catch (error) {
                 console.error('Failed to fetch group members:', error);
@@ -73,7 +71,6 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
         }
         try {
             const data = await searchUsers(query, token);
-            // Filter out users already in the current chat and self
             const currentMemberIds = new Set(groupMembers.map(m => m._id));
             const filtered = data.filter(u => u._id !== user._id && !currentMemberIds.has(u._id));
             setAddMemberSearchResults(filtered);
@@ -100,12 +97,12 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
             const newMemberIds = selectedUsersToAdd.map(u => u._id);
             await addGroupMembers(currentChat._id, newMemberIds, token);
             showNotification('Members added successfully!', 'success');
-            setSelectedUsersToAdd([]); // Clear selected
-            setAddMemberSearchQuery(''); // Clear search query
-            setAddMemberSearchResults([]); // Clear search results
+            setSelectedUsersToAdd([]);
+            setAddMemberSearchQuery('');
+            setAddMemberSearchResults([]);
 
-            await fetchGroupMembers(); // Re-fetch group members to update the list in modal
-            onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details (e.g., participants)
+            await fetchGroupMembers();
+            onChatUpdate(currentChat._id); // Notify parent component (ChatsPage) about chat update
         } catch (error) {
             console.error('Error adding members:', error);
             showNotification(error.message || 'Failed to add members.', 'error');
@@ -122,19 +119,19 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
 
     // Confirms and executes member removal
     const confirmRemoveMember = async () => {
-        if (!memberToRemoveId) return; // Should not happen if modal is shown correctly
+        if (!memberToRemoveId) return;
         try {
             await removeGroupMember(currentChat._id, memberToRemoveId, token);
             showNotification('Member removed successfully!', 'success');
-            await fetchGroupMembers(); // Re-fetch group members to update the list in modal
-            onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details (e.g., participants)
-            setShowConfirmRemoveModal(false); // Close modal
+            await fetchGroupMembers();
+            onChatUpdate(currentChat._id); // Notify parent component (ChatsPage) about chat update
+            setShowConfirmRemoveModal(false);
             setMemberToRemoveId(null);
             setMemberToRemoveUsername('');
         } catch (error) {
             console.error('Error removing member:', error);
             showNotification(error.message || 'Failed to remove member.', 'error');
-            setShowConfirmRemoveModal(false); // Close modal even on error
+            setShowConfirmRemoveModal(false);
             setMemberToRemoveId(null);
             setMemberToRemoveUsername('');
         }
@@ -191,7 +188,7 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                 )}
             </div>
 
-            {/* Messages Area */}
+            {/* Messages Area - NOW USES CHATMESSAGE COMPONENT */}
             <div className="flex-grow p-4 overflow-y-auto custom-scrollbar">
                 {loadingMessages ? (
                     <div className="text-center text-gray-500">Loading messages...</div>
@@ -199,42 +196,23 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                     <div className="text-center text-gray-500">No messages yet. Say hi!</div>
                 ) : (
                     messages.map((msg) => (
-                        <div
+                        <ChatMessage
                             key={msg._id}
-                            className={`flex mb-4 ${msg.sender._id === user._id ? 'justify-end' : 'justify-start'}`}
-                        >
-                            <div
-                                className={`flex items-end max-w-[70%] ${msg.sender._id === user._id ? 'flex-row-reverse' : 'flex-row'}`}
-                            >
-                                <img
-                                    src={msg.sender.profilePicture || `https://placehold.co/32x32/374151/E5E7EB?text=${msg.sender.username ? msg.sender.username[0].toUpperCase() : '?'}`}
-                                    alt={msg.sender.username}
-                                    className="w-8 h-8 rounded-full object-cover mx-2"
-                                    onError={(e) => {
-                                        e.target.onerror = null; // Prevent infinite loop
-                                        e.target.src = `https://placehold.co/32x32/374151/E5E7EB?text=${msg.sender.username ? msg.sender.username[0].toUpperCase() : '?'}`;
-                                    }}
-                                />
-                                <div
-                                    className={`p-3 rounded-lg shadow-md ${msg.sender._id === user._id ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-100'
-                                        }`}
-                                >
-                                    <p className="font-semibold text-sm mb-1">{msg.sender.username}</p>
-                                    <p className="break-words">{msg.content}</p>
-                                    <span className="block text-right text-xs mt-1 opacity-75">
-                                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
+                            message={msg}
+                            currentUser={user}
+                        />
                     ))
                 )}
                 <div ref={messagesEndRef} /> {/* Scroll target */}
             </div>
 
-            {/* Chat Input */}
+            {/* Chat Input - Reverted to use ChatInput component */}
             <div className="p-4 bg-gray-800 border-t border-gray-700">
-                <ChatInput onSendMessage={(content) => onSendMessage(currentChat._id, content)} />
+                {/* The message input and send button logic is handled by the ChatInput component.
+                    To change the + icon and paper airplane icon, you would need to modify
+                    the ChatInput.js file directly. I do not have access to that file.
+                */}
+                <ChatInput chatId={currentChat._id} onTextMessageSend={onSendMessage} />
             </div>
 
             {/* Members Modal */}
@@ -264,7 +242,7 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                             <span className="text-lg text-white">{member.username}</span>
                                             {currentChat.admins?.includes(member._id) && <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">Admin</span>}
                                         </div>
-                                        {isCurrentUserAdmin && member._id !== user._id && ( // Admins can remove, but not themselves
+                                        {isCurrentUserAdmin && member._id !== user._id && (
                                             <button
                                                 onClick={() => handleRemoveMemberClick(member._id, member.username)}
                                                 className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-sm transition-colors"
@@ -287,19 +265,14 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                     query={addMemberSearchQuery}
                                     onSearchChange={handleAddMemberSearch}
                                     searchResults={addMemberSearchResults}
-                                    onSelectUser={handleSelectUserToAdd} // This prop is used for selection in the modal
-                                    selectedUsers={selectedUsersToAdd} // This prop is used to highlight selected users
-                                    // These props are not needed for this specific usage of UserSearch, setting to undefined for clarity:
-                                    onCreateChat={undefined}
-                                    chats={undefined}
-                                    currentUser={undefined}
-                                    showNotification={undefined}
-                                    isGroupCreationMode={true} // Force group creation mode for UserSearch within modal
-                                    onInitiateGroupChat={undefined}
-                                    onCancelGroupChat={undefined}
-                                    newGroupChatName={undefined}
-                                    onNewGroupChatNameChange={undefined}
-                                    onCreateGroupChat={undefined}
+                                    onSelectUserForGroupChat={handleSelectUserToAdd} // This prop is used for adding to existing group
+                                    selectedUsersForGroupChat={selectedUsersToAdd} // Pass selected users
+                                    currentUser={user} // Pass currentUser
+                                    showNotification={showNotification} // Pass showNotification
+                                    isGroupCreationMode={true} // Indicate it's for group context
+                                    // Omit props not relevant for this specific usage within the modal:
+                                    // onCreateChat, chats, onInitiateGroupChat, onCancelGroupChat,
+                                    // newGroupChatName, onNewGroupChatNameChange, onCreateGroupChat
                                 />
                                 {selectedUsersToAdd.length > 0 && (
                                     <div className="mt-3">

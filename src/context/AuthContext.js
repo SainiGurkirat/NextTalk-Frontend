@@ -4,6 +4,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { loginUser, registerUser, getUserProfile } from '../lib/api'; // Corrected import to getUserProfile
+import { set } from 'date-fns';
 
 const AuthContext = createContext();
 
@@ -53,15 +54,20 @@ export const AuthProvider = ({ children }) => {
     // This function still expects an object for registration, as per your `AuthForm.js` and `api.js`
     // If you plan to change `registerUser` in `api.js` to take separate arguments,
     // you'll need to update this signature and the call to `registerUser` here too.
-    const register = async ({ username, email, password }) => { // Destructure credentials here
+        const register = async ({ username, email, password }) => { // Destructure credentials here
         setLoading(true);
         try {
-            // Call registerUser with separate arguments, assuming api.js expects them
-            await registerUser(username, email, password); // Pass destructured values
-            console.log("Registration API Response: Registration successful!");
-            return { success: true };
+            const response = await registerUser(username, email, password); // Capture the response from registerUser
+            // Only log success if the API call truly succeeded and returned expected data
+            console.log("Registration API Response: Registration successful!", response); // Now, 'response' contains actual data if successful
+
+            router.push('/login');
+            processLogin(email, password); // Automatically log in the user after registration
+            
+            return { success: true }; // This return will only be reached if no error was thrown
         } catch (error) {
             console.error('Registration failed (AuthContext):', error);
+            // This catch block correctly handles the error from api.js
             return { success: false, error: error.message || 'Registration failed' };
         } finally {
             setLoading(false);

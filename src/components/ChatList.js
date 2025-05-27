@@ -39,12 +39,43 @@ const ChatList = ({ chats, onSelectChat, selectedChatId, currentUser, onRemoveCh
                             chatDisplayImage = chat.profilePicture || `https://placehold.co/40x40/374151/E5E7EB?text=G`;
                         }
 
-                        // Get last message content for display
-                        const lastMessageContent = chat.lastMessage?.content || "No messages yet.";
-                        const lastMessageSender = chat.lastMessage?.sender?.username;
-                        const displayLastMessage = lastMessageSender
-                            ? `${lastMessageSender}: ${lastMessageContent}`
-                            : lastMessageContent;
+                        // --- Start: Logic for displaying last message preview with sender name ---
+                        let displayLastMessage = "No messages yet."; // Default value
+
+                        if (chat.lastMessage) {
+                            const lastMessageContent = chat.lastMessage.content;
+                            const lastMessageSenderName = chat.lastMessage.sender?.username; // Get sender's username
+                            const senderPrefix = lastMessageSenderName ? `${lastMessageSenderName}: ` : '';
+
+                            const hasTextContent = lastMessageContent && lastMessageContent.trim().length > 0;
+                            const isMediaMessage = chat.lastMessage.mediaUrl;
+
+                            if (isMediaMessage && !hasTextContent) {
+                                // If it's a media message with no additional text content
+                                let mediaTypeLabel = '';
+                                switch (chat.lastMessage.mediaType) {
+                                    case 'image':
+                                        mediaTypeLabel = <><i className="fas fa-image mr-1"></i> Image Attachment</>;
+                                        break;
+                                    case 'video':
+                                        mediaTypeLabel = <><i className="fas fa-video mr-1"></i> Video Attachment</>;
+                                        break;
+                                    case 'gif':
+                                        mediaTypeLabel = <><i className="fas fa-file-image mr-1"></i> GIF Attachment</>; // Using a file-image icon for GIF
+                                        break;
+                                    default:
+                                        mediaTypeLabel = <><i className="fas fa-paperclip mr-1"></i> Attachment</>; // Generic attachment icon
+                                }
+                                displayLastMessage = <>{senderPrefix}{mediaTypeLabel}</>; // Prepend sender name
+                            } else if (hasTextContent) {
+                                // If it has text content, display it, potentially truncated
+                                const messageText = `${lastMessageContent}`;
+                                displayLastMessage = `${senderPrefix}${messageText.length > 30 // Adjust truncation length as needed
+                                    ? messageText.substring(0, 27) + '...'
+                                    : messageText}`;
+                            }
+                        }
+                        // --- End: Logic for displaying last message preview with sender name ---
 
                         const isActive = selectedChatId === chat._id;
 

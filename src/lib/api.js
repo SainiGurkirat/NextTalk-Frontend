@@ -65,14 +65,35 @@ export const createChat = async (participantIds, type, name = '', token) => {
     return handleResponse(response);
 };
 
-export const sendMessage = async (chatId, content, token) => {
+export const sendMessage = async (chatId, content, token, file = null) => { // Added 'file' parameter
+    let body;
+    let headers = {
+        'Authorization': `Bearer ${token}`,
+    };
+
+    if (file) {
+        // If a file is provided, create FormData
+        const formData = new FormData();
+        if (content.trim()) { // Only append content if it's not empty
+            formData.append('content', content.trim());
+        }
+        formData.append('media', file); // 'media' is the field name Multer expects
+
+        body = formData;
+        // DO NOT set 'Content-Type': 'multipart/form-data' explicitly here.
+        // When you send a FormData object, fetch/browser will automatically
+        // set the correct 'Content-Type' header with the boundary.
+        // If you set it manually, it will break the upload.
+    } else {
+        // Otherwise, send as JSON
+        body = JSON.stringify({ content });
+        headers['Content-Type'] = 'application/json'; // Set for JSON payloads
+    }
+
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/messages`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ content }),
+        headers: headers,
+        body: body,
     });
     return handleResponse(response);
 };

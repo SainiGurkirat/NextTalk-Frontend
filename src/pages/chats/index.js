@@ -2,11 +2,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import io from 'socket.io-client';
-import { getChats, getUserProfile, createChat, sendMessage, getMessagesForChat, searchUsers, markMessagesAsRead } from '../../lib/api';
+import { getChats, getUserProfile, createChat, getMessagesForChat, searchUsers, markMessagesAsRead } from '../../lib/api';
 import ChatWindow from '../../components/ChatWindow';
 import UserSearch from '../../components/UserSearch';
 import Notification from '../../components/Notification';
 import ChatList from '../../components/ChatList';
+import { set } from 'date-fns';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api';
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
@@ -59,8 +60,8 @@ const ChatsPage = () => {
     useEffect(() => {
         const storedToken = localStorage.getItem('token');
         if (!storedToken) {
-            console.log('[AUTH] No token found, redirecting to login.');
-            router.push('/login');
+            console.log('[AUTH] No token found, redirecting to Home.');
+            router.push('/');
             return;
         }
         setToken(storedToken);
@@ -115,9 +116,12 @@ const ChatsPage = () => {
             socket.current.emit('register_user', user._id);
             console.log(`[SOCKET] Emitted 'register_user' for user ID: ${user._id}`);
             // Join all active chat rooms on connect
-            chats.forEach(chat => {
-                socket.current.emit('join_chat', chat._id);
-            });
+            // Using chatsRef.current to avoid adding 'chats' to dependency array
+            if (chats.length > 0) { // Check if chats has data before iterating
+                 chats.forEach(chat => {
+                    socket.current.emit('join_chat', chat._id);
+                });
+            }
         });
 
         socket.current.on('disconnect', () => {
@@ -336,7 +340,7 @@ const ChatsPage = () => {
                 socket.current.disconnect();
             }
         };
-    }, [user, token, displayNotification, chats]); // Added 'chats' to dependency array for join_chat on connect
+    }, [user, token, displayNotification]); // Removed 'chats' from dependency array to prevent unnecessary re-runs
 
     // --- Load Messages for Current Chat ---
     const loadMessages = useCallback(async (chatIdToLoad) => {
@@ -408,7 +412,7 @@ const ChatsPage = () => {
     }, []); // Removed currentChat from deps, as it's handled by currentChatRef
 
     // --- Message Sending ---
-    const handleSendMessage = useCallback(async (chatId, content) => {
+    const handleSendTextMessage = useCallback(async (chatId, content) => { // Renamed handleSendMessage
         if (!socket.current || !socket.current.connected) {
             displayNotification('Not connected to chat server. Please refresh.', 'error');
             console.warn('[SEND MSG ERROR] Socket not connected when attempting to send message.');
@@ -643,7 +647,9 @@ const ChatsPage = () => {
                         onClick={() => {
                             console.log('[AUTH] Logging out...');
                             localStorage.removeItem('token');
-                            router.push('/login');
+                            setUser(null);
+                            router.push('/');
+                            router.reload();
                         }}
                         className="bg-red-600 text-white px-3 py-2 rounded-md hover:bg-red-700 transition-colors"
                     >
@@ -689,7 +695,7 @@ const ChatsPage = () => {
                     currentChat={currentChat}
                     messages={messages}
                     user={user}
-                    onSendMessage={handleSendMessage}
+                    onSendMessage={handleSendTextMessage} // Changed from handleSendMessage to handleSendTextMessage
                     loadingMessages={loadingMessages}
                     showNotification={displayNotification}
                     token={token}
