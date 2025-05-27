@@ -10,15 +10,17 @@ const UserSearch = ({
     currentUser, // For main sidebar
     showNotification, // For displaying notifications
     // --- PROPS FOR GROUP CHAT CREATION MODE ---
-    isGroupCreationMode, // Boolean: true if we are in group creation mode
-    selectedUsersForGroupChat, // Array of users currently selected for the new group (from ChatsPage)
-    onSelectUserForGroupChat, // Function to toggle user selection for group (from ChatsPage)
+    isGroupCreationMode, // Boolean: true if we are in group creation mode (either new creation or adding to existing)
+    selectedUsersForGroupChat, // Array of users currently selected for the new group (from ChatsPage or ChatWindow)
+    onSelectUserForGroupChat, // Function to toggle user selection for group (from ChatsPage or ChatWindow)
     newGroupChatName, // Current value of the group chat name input (from ChatsPage)
     onNewGroupChatNameChange, // Function to update the group chat name (from ChatsPage)
     onCreateGroupChat, // Function to actually create the group chat (from ChatsPage)
     onInitiateGroupChat, // Handler to start group creation mode (from ChatsPage)
-    onCancelGroupChat // Handler to cancel group creation mode (from ChatsPage)
-    // --- END PROPS ---
+    onCancelGroupChat, // Handler to cancel group creation mode (from ChatsPage)
+    // --- NEW PROPS FOR ADDING MEMBERS TO EXISTING GROUP ---
+    isAddingMembersToExistingGroup, // Boolean: true if UserSearch is used specifically for adding members to an existing group
+    onAddMembersToExistingGroup // Function to call when confirming adding members to an existing group
 }) => {
     // Determines which array of selected users to use for highlighting
     const usersToHighlight = isGroupCreationMode ? selectedUsersForGroupChat : [];
@@ -56,7 +58,7 @@ const UserSearch = ({
             showNotification('Please select users and provide a group name.', 'warning');
             return;
         }
-        if (!onCreateGroupChat) return; 
+        if (!onCreateGroupChat) return;
 
         const participantIds = selectedUsersForGroupChat.map(u => u._id);
         await onCreateGroupChat(participantIds, 'group', newGroupChatName.trim());
@@ -77,7 +79,9 @@ const UserSearch = ({
                     value={query}
                     onChange={onSearchChange}
                 />
-                {!isGroupCreationMode ? (
+                {/* The plus/cancel button is only shown if not in the "adding to existing group" mode,
+                    as that mode is triggered by a different button in ChatWindow */}
+                {!isAddingMembersToExistingGroup && !isGroupCreationMode ? (
                     <button
                         onClick={onInitiateGroupChat}
                         title="Create Group Chat"
@@ -86,7 +90,7 @@ const UserSearch = ({
                     >
                         +
                     </button>
-                ) : (
+                ) : !isAddingMembersToExistingGroup && isGroupCreationMode ? ( // Show cancel button only for new group creation flow
                     <button
                         onClick={onCancelGroupChat}
                         title="Cancel Group Creation"
@@ -95,7 +99,7 @@ const UserSearch = ({
                     >
                         &times; {/* Times symbol for cancel */}
                     </button>
-                )}
+                ) : null /* Do not show the plus/cancel button when adding members to an existing group */}
             </div>
 
             {searchResults.length > 0 && (
@@ -105,7 +109,7 @@ const UserSearch = ({
                             <div
                                 key={user._id}
                                 // Conditionally call the appropriate handler based on mode
-                                // In group creation mode: toggle selection
+                                // In group creation/add members mode: toggle selection
                                 // Not in group creation mode: initiate private chat
                                 onClick={() => isGroupCreationMode ? onSelectUserForGroupChat(user) : handleCreatePrivateChatClick(user)}
                                 // Adjusted hover and selected background colors for Discord-like look
@@ -117,7 +121,7 @@ const UserSearch = ({
                                     <img src={user.profilePicture || `https://placehold.co/32x32/374151/E5E7EB?text=${user.username[0].toUpperCase()}`} alt={user.username} className="w-8 h-8 rounded-full mr-3 object-cover" />
                                     <span className="text-white">{user.username}</span>
                                 </div>
-                                {/* Show 'Chat' button only if NOT in group creation mode */}
+                                {/* Show 'Chat' button only if NOT in group creation mode (i.e., for private chats) */}
                                 {!isGroupCreationMode && (
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleCreatePrivateChatClick(user); }}
@@ -132,41 +136,46 @@ const UserSearch = ({
                 </div>
             )}
 
-            {/* Group Chat Creation UI (only if in group creation mode) */}
+            {/* Group Chat Creation / Add Members UI (only if in group creation mode) */}
             {isGroupCreationMode && (
                 <div className="mt-4 border-t border-gray-500 pt-4">
-                    <h4 className="text-white text-lg font-semibold mb-2">Selected for Group Chat ({selectedUsersForGroupChat.length})</h4>
+                    <h4 className="text-white text-lg font-semibold mb-2">
+                        {isAddingMembersToExistingGroup ? "Users to Add" : `Selected for Group Chat (${selectedUsersForGroupChat.length})`}
+                    </h4>
                     <div className="flex flex-wrap gap-2 mb-3">
                         {selectedUsersForGroupChat.length === 0 ? (
                             <p className="text-gray-400 text-sm">No users selected yet. Click on users in search results to add them.</p>
                         ) : (
                             selectedUsersForGroupChat.map(user => (
-                                <span key={user._id} 
+                                <span key={user._id}
                                     // Adjusted pill background color for Discord-like look
                                     className="bg-gray-600 text-white px-3 py-1 rounded-full text-sm flex items-center">
                                     {user.username}
-                                    <button onClick={() => onSelectUserForGroupChat(user)} 
+                                    <button onClick={() => onSelectUserForGroupChat(user)}
                                         // Adjusted 'x' button size and color within pill
                                         className="ml-2 text-gray-300 text-base hover:text-white leading-none">&times;</button>
                                 </span>
                             ))
                         )}
                     </div>
-                    {/* Only show group name input and create button if at least one user is selected */}
-                    {selectedUsersForGroupChat.length > 0 && ( 
+                    {/* Conditional rendering for Group Name input and action button */}
+                    {selectedUsersForGroupChat.length > 0 && (
                         <>
-                            <input
-                                type="text"
-                                placeholder="Group Name"
-                                className="w-full p-2 rounded-md bg-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
-                                value={newGroupChatName}
-                                onChange={(e) => onNewGroupChatNameChange(e.target.value)}
-                            />
+                            {!isAddingMembersToExistingGroup && ( // Only show Group Name for new group creation
+                                <input
+                                    type="text"
+                                    placeholder="Group Name"
+                                    className="w-full p-2 rounded-md bg-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+                                    value={newGroupChatName}
+                                    onChange={(e) => onNewGroupChatNameChange(e.target.value)}
+                                />
+                            )}
                             <button
-                                onClick={handleCreateGroupChatInternal} 
-                                className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-md font-semibold"
+                                onClick={isAddingMembersToExistingGroup ? onAddMembersToExistingGroup : handleCreateGroupChatInternal}
+                                className={`w-full py-2 rounded-md font-semibold transition-colors
+                                    ${isAddingMembersToExistingGroup ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'}`}
                             >
-                                Start Group Chat
+                                {isAddingMembersToExistingGroup ? "Add Selected Members" : "Start Group Chat"}
                             </button>
                         </>
                     )}

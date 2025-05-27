@@ -269,30 +269,14 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                     selectedUsersForGroupChat={selectedUsersToAdd} // Pass selected users
                                     currentUser={user} // Pass currentUser
                                     showNotification={showNotification} // Pass showNotification
-                                    isGroupCreationMode={true} // Indicate it's for group context
+                                    isGroupCreationMode={true} // Indicate it's for group context to enable selection logic
+                                    isAddingMembersToExistingGroup={true} // NEW: Indicate this is for adding to an existing group
+                                    onAddMembersToExistingGroup={handleConfirmAddMembers} // NEW: Pass the handler for adding members
                                     // Omit props not relevant for this specific usage within the modal:
                                     // onCreateChat, chats, onInitiateGroupChat, onCancelGroupChat,
                                     // newGroupChatName, onNewGroupChatNameChange, onCreateGroupChat
                                 />
-                                {selectedUsersToAdd.length > 0 && (
-                                    <div className="mt-3">
-                                        <p className="text-gray-300 mb-2">Selected to add:</p>
-                                        <div className="flex flex-wrap gap-2 mb-3">
-                                            {selectedUsersToAdd.map(u => (
-                                                <span key={u._id} className="bg-blue-700 text-white px-3 py-1 rounded-full text-sm flex items-center">
-                                                    {u.username}
-                                                    <button onClick={() => handleSelectUserToAdd(u)} className="ml-2 text-white hover:text-gray-300">&times;</button>
-                                                </span>
-                                            ))}
-                                        </div>
-                                        <button
-                                            onClick={handleConfirmAddMembers}
-                                            className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-md font-semibold transition-colors"
-                                        >
-                                            Add Selected Members
-                                        </button>
-                                    </div>
-                                )}
+
                             </div>
                         )}
                     </div>
