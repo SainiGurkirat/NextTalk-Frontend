@@ -1,32 +1,25 @@
-// frontend/pages/register/index.js
-import { useEffect } from 'react';
+// frontend/pages/register/index.js (Corrected version)
+import React from 'react';
 import AuthForm from '../../components/AuthForm';
-import { useAuth } from '../../context/AuthContext';
-import { useRouter } from 'next/router';
-import Layout from '../../components/Layout'; // Assuming you have a Layout component
+import { useRouter } from 'next/router'; // Import useRouter
 
 const RegisterPage = () => {
-  const { isAuthenticated, login } = useAuth(); // Assuming login is the function to set auth state
-  const router = useRouter();
+    const router = useRouter();
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      router.push('/chats'); // Redirect to chats page if already authenticated
-    }
-  }, [isAuthenticated, router]);
+    const handleRegisterSuccess = (token) => {
+        // A token might be returned by register if your backend sends it,
+        // but the primary goal after register is usually to prompt login.
+        // You could optionally save the token here if you want to auto-login.
+        // For now, let's redirect to login.
+        console.log("[REGISTER PAGE] Registration successful, redirecting to login.");
+        router.push('/login?registered=true'); // Redirect to login page, add query param for message
+    };
 
-  // onAuthSuccess is a prop passed to AuthForm, which calls AuthContext's login function
-  const handleRegisterSuccess = (token) => {
-    login(token); // Update AuthContext state (register usually logs you in immediately)
-  };
-
-  return (
-    <Layout>
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
-        <AuthForm formType="register" onAuthSuccess={handleRegisterSuccess} />
-      </div>
-    </Layout>
-  );
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-900">
+            <AuthForm formType="register" onAuthSuccess={handleRegisterSuccess} />
+        </div>
+    );
 };
 
 export default RegisterPage;

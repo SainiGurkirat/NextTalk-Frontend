@@ -147,3 +147,27 @@ export const removeGroupMember = async (chatId, memberIdToRemove, token) => {
     });
     return handleResponse(response);
 };
+
+// NEW: Hide a private chat
+export const hideChat = async (chatId, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/hide/${chatId}`, {
+        method: 'PUT',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+    });
+    return handleResponse(response);
+};
+
+// NEW: Leave a group chat
+export const leaveGroupChat = async (chatId, token) => {
+    const response = await fetch(`${BACKEND_URL}/api/chats/leave/${chatId}`, {
+        method: 'PUT',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+    });
+    return handleResponse(response);
+};

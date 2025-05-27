@@ -1,5 +1,6 @@
 // frontend/components/ChatWindow.js
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ChatMessage from './ChatMessage'; // Assuming ChatMessage component exists
 import ChatInput from './ChatInput';
 import { getGroupMembers, addGroupMembers, removeGroupMember, searchUsers } from '../lib/api';
 import Notification from './Notification'; // Assuming you have this
@@ -16,13 +17,19 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
     const [addMemberSearchResults, setAddMemberSearchResults] = useState([]);
     const [selectedUsersToAdd, setSelectedUsersToAdd] = useState([]);
 
+    // State for custom confirmation dialog for removing members
+    const [showConfirmRemoveModal, setShowConfirmRemoveModal] = useState(false);
+    const [memberToRemoveId, setMemberToRemoveId] = useState(null);
+    const [memberToRemoveUsername, setMemberToRemoveUsername] = useState('');
 
-    // Scroll to latest message whenever messages change
+
+    // Scroll to latest message whenever messages or the currentChat changes
     useEffect(() => {
         if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+            // Corrected: Use 'smooth' behavior and remove invalid 'position' property
+            messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
         }
-    }, [messages]);
+    }, [messages, currentChat]); // Added currentChat to dependencies for initial scroll on chat selection
 
     // Check if current user is admin whenever currentChat or user changes
     useEffect(() => {
@@ -106,20 +113,38 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
     };
 
 
-    // Handle removing a member
-    const handleRemoveMember = async (memberId) => {
-        if (!window.confirm(`Are you sure you want to remove this member?`)) {
-            return;
-        }
+    // Handle removing a member (initiates confirmation modal)
+    const handleRemoveMemberClick = (memberId, username) => {
+        setMemberToRemoveId(memberId);
+        setMemberToRemoveUsername(username);
+        setShowConfirmRemoveModal(true);
+    };
+
+    // Confirms and executes member removal
+    const confirmRemoveMember = async () => {
+        if (!memberToRemoveId) return; // Should not happen if modal is shown correctly
         try {
-            await removeGroupMember(currentChat._id, memberId, token);
+            await removeGroupMember(currentChat._id, memberToRemoveId, token);
             showNotification('Member removed successfully!', 'success');
             await fetchGroupMembers(); // Re-fetch group members to update the list in modal
             onChatUpdate(currentChat._id); // Notify parent to refresh chat list/details (e.g., participants)
+            setShowConfirmRemoveModal(false); // Close modal
+            setMemberToRemoveId(null);
+            setMemberToRemoveUsername('');
         } catch (error) {
             console.error('Error removing member:', error);
             showNotification(error.message || 'Failed to remove member.', 'error');
+            setShowConfirmRemoveModal(false); // Close modal even on error
+            setMemberToRemoveId(null);
+            setMemberToRemoveUsername('');
         }
+    };
+
+    // Cancels member removal
+    const cancelRemoveMember = () => {
+        setShowConfirmRemoveModal(false);
+        setMemberToRemoveId(null);
+        setMemberToRemoveUsername('');
     };
 
 
@@ -132,20 +157,29 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
         );
     }
 
+    // Determine chat display name and image
     const chatDisplayName = currentChat.type === 'private'
         ? currentChat.participants.find(p => p._id !== user._id)?.username || 'Unknown User'
         : currentChat.name;
 
     const chatDisplayImage = currentChat.type === 'private'
-        ? currentChat.participants.find(p => p._id !== user._id)?.profilePicture || '/default-avatar.png'
-        : '/default-group-avatar.png';
+        ? currentChat.participants.find(p => p._id !== user._id)?.profilePicture || `https://placehold.co/40x40/374151/E5E7EB?text=${chatDisplayName ? chatDisplayName[0].toUpperCase() : '?'}`
+        : `https://placehold.co/40x40/374151/E5E7EB?text=${chatDisplayName ? chatDisplayName[0].toUpperCase() : 'G'}`;
 
 
     return (
         <div className="flex flex-col h-full bg-gray-900 text-white">
             {/* Chat Header */}
             <div className="flex items-center p-4 bg-gray-800 border-b border-gray-700 shadow-md">
-                <img src={chatDisplayImage} alt={chatDisplayName} className="w-10 h-10 rounded-full mr-3 object-cover" />
+                <img
+                    src={chatDisplayImage}
+                    alt={chatDisplayName}
+                    className="w-10 h-10 rounded-full mr-3 object-cover"
+                    onError={(e) => {
+                        e.target.onerror = null; // Prevent infinite loop
+                        e.target.src = `https://placehold.co/40x40/374151/E5E7EB?text=${chatDisplayName ? chatDisplayName[0].toUpperCase() : '?'}`;
+                    }}
+                />
                 <h2 className="text-xl font-semibold">{chatDisplayName}</h2>
                 {currentChat.type === 'group' && (
                     <button
@@ -173,9 +207,13 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                 className={`flex items-end max-w-[70%] ${msg.sender._id === user._id ? 'flex-row-reverse' : 'flex-row'}`}
                             >
                                 <img
-                                    src={msg.sender.profilePicture || '/default-avatar.png'}
+                                    src={msg.sender.profilePicture || `https://placehold.co/32x32/374151/E5E7EB?text=${msg.sender.username ? msg.sender.username[0].toUpperCase() : '?'}`}
                                     alt={msg.sender.username}
                                     className="w-8 h-8 rounded-full object-cover mx-2"
+                                    onError={(e) => {
+                                        e.target.onerror = null; // Prevent infinite loop
+                                        e.target.src = `https://placehold.co/32x32/374151/E5E7EB?text=${msg.sender.username ? msg.sender.username[0].toUpperCase() : '?'}`;
+                                    }}
                                 />
                                 <div
                                     className={`p-3 rounded-lg shadow-md ${msg.sender._id === user._id ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-100'
@@ -195,7 +233,9 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
             </div>
 
             {/* Chat Input */}
-            <ChatInput onSendMessage={(content) => onSendMessage(currentChat._id, content)} />
+            <div className="p-4 bg-gray-800 border-t border-gray-700">
+                <ChatInput onSendMessage={(content) => onSendMessage(currentChat._id, content)} />
+            </div>
 
             {/* Members Modal */}
             {showMembersModal && currentChat.type === 'group' && (
@@ -212,13 +252,21 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                 groupMembers.map(member => (
                                     <div key={member._id} className="flex items-center justify-between p-2 rounded-md hover:bg-gray-700 transition-colors mb-2">
                                         <div className="flex items-center">
-                                            <img src={member.profilePicture || '/default-avatar.png'} alt={member.username} className="w-10 h-10 rounded-full mr-3 object-cover" />
+                                            <img
+                                                src={member.profilePicture || `https://placehold.co/40x40/374151/E5E7EB?text=${member.username ? member.username[0].toUpperCase() : '?'}`}
+                                                alt={member.username}
+                                                className="w-10 h-10 rounded-full mr-3 object-cover"
+                                                onError={(e) => {
+                                                    e.target.onerror = null; // Prevent infinite loop
+                                                    e.target.src = `https://placehold.co/40x40/374151/E5E7EB?text=${member.username ? member.username[0].toUpperCase() : '?'}`;
+                                                }}
+                                            />
                                             <span className="text-lg text-white">{member.username}</span>
-                                            {currentChat.admins.includes(member._id) && <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">Admin</span>}
+                                            {currentChat.admins?.includes(member._id) && <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">Admin</span>}
                                         </div>
                                         {isCurrentUserAdmin && member._id !== user._id && ( // Admins can remove, but not themselves
                                             <button
-                                                onClick={() => handleRemoveMember(member._id)}
+                                                onClick={() => handleRemoveMemberClick(member._id, member.username)}
                                                 className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-sm transition-colors"
                                             >
                                                 Remove
@@ -239,13 +287,19 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                     query={addMemberSearchQuery}
                                     onSearchChange={handleAddMemberSearch}
                                     searchResults={addMemberSearchResults}
-                                    onSelectUser={handleSelectUserToAdd}
-                                    selectedUsers={selectedUsersToAdd}
-                                    // These props are not needed for this usage of UserSearch:
-                                    // onCreateChat={undefined}
-                                    // chats={undefined}
-                                    // currentUser={undefined}
-                                    // showNotification={undefined}
+                                    onSelectUser={handleSelectUserToAdd} // This prop is used for selection in the modal
+                                    selectedUsers={selectedUsersToAdd} // This prop is used to highlight selected users
+                                    // These props are not needed for this specific usage of UserSearch, setting to undefined for clarity:
+                                    onCreateChat={undefined}
+                                    chats={undefined}
+                                    currentUser={undefined}
+                                    showNotification={undefined}
+                                    isGroupCreationMode={true} // Force group creation mode for UserSearch within modal
+                                    onInitiateGroupChat={undefined}
+                                    onCancelGroupChat={undefined}
+                                    newGroupChatName={undefined}
+                                    onNewGroupChatNameChange={undefined}
+                                    onCreateGroupChat={undefined}
                                 />
                                 {selectedUsersToAdd.length > 0 && (
                                     <div className="mt-3">
@@ -268,6 +322,32 @@ const ChatWindow = ({ currentChat, messages, user, onSendMessage, loadingMessage
                                 )}
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Confirmation Modal for Remove Member */}
+            {showConfirmRemoveModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+                    <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-sm">
+                        <h3 className="text-xl font-bold text-white mb-4">Confirm Removal</h3>
+                        <p className="text-gray-300 mb-6">
+                            Are you sure you want to remove <span className="font-semibold text-white">{memberToRemoveUsername}</span> from this group?
+                        </p>
+                        <div className="flex justify-end space-x-4">
+                            <button
+                                onClick={cancelRemoveMember}
+                                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmRemoveMember}
+                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
+                            >
+                                Remove
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

@@ -6,6 +6,7 @@ import { getChats, getUserProfile, createChat, sendMessage, getMessagesForChat, 
 import ChatWindow from '../../components/ChatWindow';
 import UserSearch from '../../components/UserSearch';
 import Notification from '../../components/Notification';
+import ChatList from '../../components/ChatList';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api';
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
@@ -16,7 +17,7 @@ const ChatsPage = () => {
     const [token, setToken] = useState(null);
     const [chats, setChats] = useState([]);
     const [currentChat, setCurrentChat] = useState(null);
-    const [currentChatId, setCurrentChatId] = useState(null);
+    const [currentChatId, setCurrentChatId] = useState(null); // Used to trigger message loading
     const [messages, setMessages] = useState([]);
     const [loadingChats, setLoadingChats] = useState(true);
     const [loadingMessages, setLoadingMessages] = useState(false);
@@ -28,13 +29,18 @@ const ChatsPage = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
 
+    // States for group chat creation
+    const [isCreatingGroupChat, setIsCreatingGroupChat] = useState(false);
+    const [selectedUsersForGroupChat, setSelectedUsersForGroupChat] = useState([]);
+    const [newGroupChatName, setNewGroupChatName] = useState('');
+
     const socket = useRef(null);
-    const currentChatRef = useRef(currentChat); // NEW: Ref to hold the latest currentChat
+    const currentChatRef = useRef(currentChat); // Ref to hold the latest currentChat state
 
     // --- Update currentChatRef whenever currentChat state changes ---
     useEffect(() => {
         currentChatRef.current = currentChat;
-        console.log('[FRONTEND DEBUG] currentChat state updated:', currentChat ? currentChat._id : 'null');
+        console.log('[FRONTEND DEBUG] currentChat state updated (ref):', currentChat ? currentChat._id : 'null');
     }, [currentChat]); // This useEffect solely keeps the ref updated
 
     // --- Notification Logic ---
@@ -72,6 +78,15 @@ const ChatsPage = () => {
                 setChats(initialChats);
                 setLoadingChats(false);
                 console.log('[INIT] Initial chats fetched:', initialChats.length);
+
+                // Handle initial chat selection from URL query if present
+                if (router.query.chatId) {
+                    const chatFromUrl = initialChats.find(c => c._id === router.query.chatId);
+                    if (chatFromUrl) {
+                        handleChatSelect(chatFromUrl);
+                    }
+                }
+
             } catch (error) {
                 console.error('[INIT ERROR] Failed to fetch user data or chats:', error);
                 displayNotification(error.message || 'Failed to load data. Please log in again.', 'error');
@@ -99,6 +114,10 @@ const ChatsPage = () => {
             console.log('Socket.IO connected:', socket.current.id);
             socket.current.emit('register_user', user._id);
             console.log(`[SOCKET] Emitted 'register_user' for user ID: ${user._id}`);
+            // Join all active chat rooms on connect
+            chats.forEach(chat => {
+                socket.current.emit('join_chat', chat._id);
+            });
         });
 
         socket.current.on('disconnect', () => {
@@ -108,36 +127,44 @@ const ChatsPage = () => {
         socket.current.on('receive_message', (newMessage) => {
             console.log('[FRONTEND] Received new message via socket:', newMessage);
             const latestCurrentChat = currentChatRef.current;
-            console.log('[FRONTEND] currentChatRef.current (latest selected chat):', latestCurrentChat ? latestCurrentChat._id : 'null');
-            console.log('[FRONTEND] newMessage.chat (from received message):', newMessage.chat);
-            console.log('[FRONTEND] Comparison result (newMessage.chat === latestCurrentChat?._id):', latestCurrentChat && newMessage.chat === latestCurrentChat._id);
+
+            // Ensure sender is populated for display, especially for self-sent messages
+            // Backend should ideally send populated sender, but client-side fallback is good
+            if (newMessage.sender && typeof newMessage.sender === 'string') {
+                if (newMessage.sender === user._id) {
+                    newMessage.sender = user;
+                } else if (latestCurrentChat) {
+                    const participant = latestCurrentChat.participants.find(p => p._id === newMessage.sender);
+                    if (participant) {
+                        newMessage.sender = participant;
+                    }
+                }
+            } else if (!newMessage.sender && newMessage.senderId === user._id) { // Fallback if sender isn't populated at all
+                newMessage.sender = user;
+            }
+
 
             setMessages(prevMessages => {
-                console.log('[FRONTEND] Previous messages state length BEFORE update:', prevMessages.length);
                 if (latestCurrentChat && newMessage.chat === latestCurrentChat._id) {
-                    console.log('[FRONTEND] Condition TRUE: Adding message to current chat:', newMessage);
-                    return [...prevMessages, newMessage];
+                    // Prevent duplicate messages if already added
+                    if (!prevMessages.some(msg => msg._id === newMessage._id)) {
+                        return [...prevMessages, newMessage];
+                    }
                 }
-                console.log('[FRONTEND] Condition FALSE: Message is NOT for current chat, or no chat selected. Not updating messages state for main window.');
                 return prevMessages;
             });
 
             // Update chats list (for sidebar preview, unread counts)
             setChats(prevChats => {
-                const latestCurrentChatForUnread = currentChatRef.current; // Use ref again for unread logic
                 const updatedChats = prevChats.map(chat => {
                     if (chat._id === newMessage.chat) {
                         let newUnreadCount = chat.unreadCount;
                         // Increment unread count only if message is from someone else AND chat is not currently open
-                        if (newMessage.sender._id !== user._id && !(latestCurrentChatForUnread && latestCurrentChatForUnread._id === chat._id)) {
+                        if (newMessage.sender._id !== user._id && !(latestCurrentChat && latestCurrentChat._id === chat._id)) {
                             newUnreadCount = (newUnreadCount || 0) + 1;
-                            console.log(`[FRONTEND] Incrementing unread count for chat ${chat._id}. New count: ${newUnreadCount}`);
-                        } else if (newMessage.sender._id !== user._id && (latestCurrentChatForUnread && latestCurrentChatForUnread._id === chat._id)) {
-                             console.log(`[FRONTEND] Message from other user in CURRENTLY OPEN chat ${chat._id}. Not incrementing unread.`);
-                        } else if (newMessage.sender._id === user._id) {
-                            console.log(`[FRONTEND] Message from self in chat ${chat._id}. Not incrementing unread.`);
+                            displayNotification(`New message in ${chat.name || newMessage.sender.username || 'a chat'}`, 'info');
                         }
-                        
+
                         return {
                             ...chat,
                             lastMessage: {
@@ -146,13 +173,12 @@ const ChatsPage = () => {
                                 timestamp: newMessage.createdAt
                             },
                             unreadCount: newUnreadCount,
-                            updatedAt: newMessage.createdAt // Crucial for sorting
+                            updatedAt: newMessage.createdAt
                         };
                     }
                     return chat;
                 })
                 .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-                console.log('[FRONTEND] Chats after sidebar update (sorted by updatedAt):', updatedChats.map(c => ({_id: c._id, unread: c.unreadCount, lastMsg: c.lastMessage?.content, updatedAt: c.updatedAt})));
                 return updatedChats;
             });
         });
@@ -160,16 +186,17 @@ const ChatsPage = () => {
         socket.current.on('chatCreated', (newChatData) => {
             console.log('[SOCKET] New chat created/received:', newChatData);
             setChats(prevChats => {
-                // Ensure new chat is not a duplicate and add it
                 if (!prevChats.some(chat => chat._id === newChatData._id)) {
                     const updated = [newChatData, ...prevChats].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-                    console.log('[SOCKET] Chats after chatCreated (added):', updated.map(c => c._id));
                     return updated;
                 }
                 const sorted = prevChats.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-                console.log('[SOCKET] Chat already exists (not added), re-sorted:', sorted.map(c => c._id));
                 return sorted;
             });
+            // If the user is a participant of the new chat, join its room
+            if (newChatData.participants.some(p => p._id === user._id || p === user._id)) {
+                socket.current.emit('join_chat', newChatData._id);
+            }
             displayNotification(`New chat: ${newChatData.name || 'Private Chat'}`, 'info');
         });
 
@@ -183,22 +210,23 @@ const ChatsPage = () => {
                         updatedAt: updatedChatData.updatedAt || chat.updatedAt,
                         name: updatedChatData.name || chat.name,
                         participants: updatedChatData.participants || chat.participants,
+                        // Ensure unreadCount is preserved or updated if the server sends it
+                        unreadCount: updatedChatData.unreadCount !== undefined ? updatedChatData.unreadCount : chat.unreadCount,
                     } : chat
                 ).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-                console.log('[SOCKET] Chats after chatUpdated (sidebar):', updated.map(c => c._id));
                 return updated;
             });
 
             // If the currently selected chat is the one updated, make sure currentChat also reflects it
             setCurrentChat(prevChat => {
                 if (prevChat && prevChat._id === updatedChatData._id) {
-                    console.log('[SOCKET] Updating currentChat state due to chatUpdated event.');
                     return {
                         ...prevChat,
                         lastMessage: updatedChatData.lastMessage || prevChat.lastMessage,
                         updatedAt: updatedChatData.updatedAt || prevChat.updatedAt,
                         name: updatedChatData.name || prevChat.name,
                         participants: updatedChatData.participants || prevChat.participants,
+                        unreadCount: updatedChatData.unreadCount !== undefined ? updatedChatData.unreadCount : prevChat.unreadCount,
                     };
                 }
                 return prevChat;
@@ -222,7 +250,6 @@ const ChatsPage = () => {
             console.log('[SOCKET] Chat deleted:', deletedChatId);
             setChats(prevChats => {
                 const filtered = prevChats.filter(chat => chat._id !== deletedChatId);
-                console.log('[SOCKET] Chats after chatDeleted:', filtered.map(c => c._id));
                 return filtered;
             });
             if (currentChatRef.current && currentChatRef.current._id === deletedChatId) {
@@ -242,15 +269,60 @@ const ChatsPage = () => {
                     chat._id === chatId ? { ...chat, unreadCount: 0 } : chat
                 )
             );
-             setCurrentChat(prevChat =>
+            setCurrentChat(prevChat =>
                 prevChat && prevChat._id === chatId ? { ...prevChat, unreadCount: 0 } : prevChat
             );
+        });
+
+        // IMPORTANT: Handle 'chatHidden' from backend
+        socket.current.on('chatHidden', ({ chatId, userId }) => {
+            console.log(`[SOCKET] Chat ${chatId} hidden for user ${userId}.`);
+            if (userId === user._id) { // Only update if it's for the current user
+                setChats(prevChats => prevChats.filter(chat => chat._id !== chatId));
+                if (currentChatRef.current && currentChatRef.current._id === chatId) {
+                    setCurrentChat(null);
+                    setCurrentChatId(null);
+                    setMessages([]);
+                    displayNotification('You have hidden this private chat.', 'info');
+                }
+            }
+        });
+
+        // IMPORTANT: Handle 'chatLeft' from backend (for groups)
+        socket.current.on('chatLeft', ({ chatId, userId }) => {
+            console.log(`[SOCKET] User ${userId} left chat: ${chatId}`);
+            if (userId === user._id) { // If current user left the group
+                setChats(prevChats => prevChats.filter(chat => chat._id !== chatId));
+                if (currentChatRef.current && currentChatRef.current._id === chatId) {
+                    setCurrentChat(null);
+                    setCurrentChatId(null);
+                    setMessages([]);
+                    displayNotification('You have left the group chat.', 'info');
+                }
+            } else { // Another user left the group
+                setChats(prevChats => prevChats.map(chat => {
+                    if (chat._id === chatId) {
+                        return {
+                            ...chat,
+                            participants: chat.participants.filter(p => p._id !== userId)
+                        };
+                    }
+                    return chat;
+                }));
+                if (currentChatRef.current && currentChatRef.current._id === chatId) {
+                    setCurrentChat(prevChat => ({
+                        ...prevChat,
+                        participants: prevChat.participants.filter(p => p._id !== userId)
+                    }));
+                    displayNotification(`${chats.find(c => c._id === chatId)?.participants.find(p => p._id === userId)?.username || 'A user'} has left the group.`, 'info');
+                }
+            }
         });
 
 
         return () => {
             if (socket.current) {
-                console.log('[SOCKET] Cleaning up Socket.IO listeners...');
+                console.log('[SOCKET] Cleaning up Socket.IO listeners and disconnecting...');
                 socket.current.off('connect');
                 socket.current.off('disconnect');
                 socket.current.off('receive_message');
@@ -258,12 +330,13 @@ const ChatsPage = () => {
                 socket.current.off('chatUpdated');
                 socket.current.off('group_members_updated');
                 socket.current.off('chatDeleted');
-                socket.current.off('chatRead'); // Added cleanup for chatRead
+                socket.current.off('chatRead');
+                socket.current.off('chatHidden'); // Clean up new listener
+                socket.current.off('chatLeft');   // Clean up new listener
                 socket.current.disconnect();
             }
         };
-    // Dependencies for socket setup now excludes currentChat, as we use currentChatRef
-    }, [user, token, displayNotification]);
+    }, [user, token, displayNotification, chats]); // Added 'chats' to dependency array for join_chat on connect
 
     // --- Load Messages for Current Chat ---
     const loadMessages = useCallback(async (chatIdToLoad) => {
@@ -280,9 +353,9 @@ const ChatsPage = () => {
             console.log(`[LOAD MSG] Messages fetched for ${chatIdToLoad}:`, chatMessages.length);
 
             console.log(`[LOAD MSG] Marking messages as read for chat: ${chatIdToLoad}`);
-            await markMessagesAsRead(chatIdToLoad, token);
-            
-            // Update the unread count locally for the sidebar and current chat state
+            await markMessagesAsRead(chatIdToLoad, token); // API call to mark as read
+
+            // Update the unread count locally in state immediately
             setChats(prevChats =>
                 prevChats.map(c =>
                     c._id === chatIdToLoad ? { ...c, unreadCount: 0 } : c
@@ -309,42 +382,63 @@ const ChatsPage = () => {
     // --- Chat Selection Handler ---
     const handleChatSelect = useCallback((chat) => {
         console.log('[CHAT SELECT] Selected chat:', chat._id);
+        // Reset group chat creation state when selecting an existing chat
+        setIsCreatingGroupChat(false);
+        setSelectedUsersForGroupChat([]);
+        setNewGroupChatName('');
+        setSearchQuery(''); // Clear search input
+        setSearchResults([]); // Clear search results
+
+        // Leave previous chat room if one was selected
+        if (socket.current && currentChatRef.current && currentChatRef.current._id && currentChatRef.current._id !== chat._id) {
+            console.log(`[SOCKET] Leaving chat room: ${currentChatRef.current._id}`);
+            socket.current.emit('leave_chat', currentChatRef.current._id);
+        }
+
         // Set currentChat state
         setCurrentChat(chat);
         // Set currentChatId state to trigger message loading useEffect
         setCurrentChatId(chat._id);
 
-        // Manage socket rooms
+        // Join the new chat's room
         if (socket.current) {
-            // Leave previous chat room if one was selected
-            if (currentChatRef.current && currentChatRef.current._id && currentChatRef.current._id !== chat._id) {
-                console.log(`[SOCKET] Leaving chat room: ${currentChatRef.current._id}`);
-                socket.current.emit('leave_chat', currentChatRef.current._id);
-            }
-            // Join the new chat's room
             console.log(`[SOCKET] Joining chat room: ${chat._id}`);
             socket.current.emit('join_chat', chat._id);
         }
-    }, []);
+    }, []); // Removed currentChat from deps, as it's handled by currentChatRef
 
     // --- Message Sending ---
     const handleSendMessage = useCallback(async (chatId, content) => {
-        console.log(`[SEND MSG] Attempting to send message to chat ${chatId}: "${content}"`);
-        try {
-            await sendMessage(chatId, content, token);
-            console.log('[SEND MSG] Message sent via HTTP POST. Awaiting socket event for UI update.');
-            // Message will appear via socket.io 'receive_message' event
-            // No direct state update here as the socket event handles it for all clients
-        } catch (error) {
-            console.error('[SEND MSG ERROR] Send message error:', error);
-            displayNotification(error.message || 'Failed to send message.', 'error');
+        if (!socket.current || !socket.current.connected) {
+            displayNotification('Not connected to chat server. Please refresh.', 'error');
+            console.warn('[SEND MSG ERROR] Socket not connected when attempting to send message.');
+            return;
         }
-    }, [token, displayNotification]);
+        if (!chatId || !content.trim()) {
+            displayNotification('Message content cannot be empty.', 'warning');
+            return;
+        }
+
+        console.log(`[SEND MSG] Emitting 'sendMessage' via socket to chat ${chatId}: "${content}"`);
+        try {
+            socket.current.emit('sendMessage', { chatId, content });
+            console.log('[SEND MSG] Message emitted via socket. Awaiting receive_message for UI update.');
+        } catch (error) {
+            console.error('[SEND MSG ERROR] Socket send message error:', error);
+            displayNotification('Failed to send message via socket.', 'error');
+        }
+    }, [displayNotification]);
 
     // --- User Search & Create Chat from UserSearch component ---
     const handleSearchInputChange = useCallback(async (e) => {
         const query = e.target.value;
         setSearchQuery(query);
+
+        if (!isCreatingGroupChat) { // Only reset group creation state if NOT already in group creation mode
+            setSelectedUsersForGroupChat([]);
+            setNewGroupChatName('');
+        }
+
         if (!query) {
             setSearchResults([]);
             return;
@@ -357,7 +451,40 @@ const ChatsPage = () => {
             console.error('[SEARCH] User search error:', error);
             displayNotification(error.message || 'Failed to search users.', 'error');
         }
-    }, [token, user, displayNotification]);
+    }, [token, user, displayNotification, isCreatingGroupChat]);
+
+    // --- Handler for selecting/deselecting users in group chat creation mode ---
+    const handleSelectUserForGroupChat = useCallback((userToToggle) => {
+        setSelectedUsersForGroupChat(prevSelected => {
+            const isSelected = prevSelected.some(u => u._id === userToToggle._id);
+            if (isSelected) {
+                return prevSelected.filter(u => u._id !== userToToggle._id);
+            } else {
+                return [...prevSelected, userToToggle];
+            }
+        });
+    }, []);
+
+    // --- Handler for initiating group chat creation mode ---
+    const handleInitiateGroupChatCreation = useCallback(() => {
+        setIsCreatingGroupChat(true);
+        setSelectedUsersForGroupChat([]); // Clear any previous selection
+        setNewGroupChatName('');
+        setSearchQuery(''); // Clear search input
+        setSearchResults([]); // Clear search results
+        setCurrentChat(null); // Deselect current chat
+        setCurrentChatId(null);
+        setMessages([]);
+    }, []);
+
+    // --- Handler for cancelling group chat creation mode ---
+    const handleCancelGroupChatCreation = useCallback(() => {
+        setIsCreatingGroupChat(false);
+        setSelectedUsersForGroupChat([]);
+        setNewGroupChatName('');
+        setSearchQuery('');
+        setSearchResults([]);
+    }, []);
 
     const handleCreateNewChatFromUserSearch = useCallback(async (participantIds, type, name = '', existingChatId = null) => {
         if (!user) {
@@ -387,10 +514,14 @@ const ChatsPage = () => {
             setChats(prevChats => {
                 const updatedChats = [result.chat, ...prevChats.filter(c => c._id !== result.chat._id)];
                 const sorted = updatedChats.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-                console.log('[CREATE CHAT] Chats after new chat creation:', sorted.map(c => c._id));
                 return sorted;
             });
             handleChatSelect(result.chat); // Select the newly created chat
+
+            // Reset group chat creation states after successful creation
+            setIsCreatingGroupChat(false);
+            setSelectedUsersForGroupChat([]);
+            setNewGroupChatName('');
             setSearchQuery(''); // Clear search input
             setSearchResults([]); // Clear search results
 
@@ -420,6 +551,77 @@ const ChatsPage = () => {
     }, [token, displayNotification]);
 
 
+    // --- NEW: handleRemoveChat Function ---
+    const handleRemoveChat = useCallback(async (chatId, isGroupChat) => {
+        if (!token) {
+            displayNotification('Authentication token is missing.', 'error');
+            return;
+        }
+
+        const actionText = isGroupChat ? 'leave' : 'hide';
+        console.log(`[REMOVE CHAT] Attempting to ${actionText} chat: ${chatId}`);
+
+        try {
+            let response;
+            if (isGroupChat) {
+                // Assuming you have a leaveGroupChat function in your api.js
+                // Or you can make a direct fetch here:
+                response = await fetch(`${API_BASE_URL}/chats/leave/${chatId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+            } else {
+                // Assuming you have a hidePrivateChat function in your api.js
+                // Or you can make a direct fetch here:
+                response = await fetch(`${API_BASE_URL}/chats/hide/${chatId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+            }
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Failed to ${actionText} chat.`);
+            }
+
+            console.log(`[REMOVE CHAT] Successfully ${actionText}d chat: ${chatId}`);
+            displayNotification(`Chat ${actionText}d successfully!`, 'success');
+
+            // Update local state to remove the chat
+            setChats(prevChats => prevChats.filter(chat => chat._id !== chatId));
+
+            // If the removed chat was the currently selected one, clear selection
+            if (currentChat && currentChat._id === chatId) {
+                setCurrentChat(null);
+                setCurrentChatId(null);
+                setMessages([]);
+                console.log('[REMOVE CHAT] Cleared selected chat and messages.');
+            }
+
+            // Emit socket event to notify server (optional, but good for consistency)
+            if (socket.current) {
+                if (isGroupChat) {
+                    socket.current.emit('leave_chat', chatId);
+                } else {
+                    // For private chats, you might have a 'hide_chat' event or rely on backend to sync
+                    // If the backend already handles sending 'chatHidden', this might be redundant for now.
+                    // socket.current.emit('hide_chat', chatId); 
+                }
+            }
+
+        } catch (error) {
+            console.error(`[REMOVE CHAT ERROR] Error ${actionText}ing chat:`, error);
+            displayNotification(error.message || `Failed to ${actionText} chat.`, 'error');
+        }
+    }, [token, currentChat, displayNotification, socket]); // Added currentChat and socket to deps
+
+
     if (!user || loadingChats) {
         return <div className="flex justify-center items-center h-screen text-lg text-gray-700">Loading chat page...</div>;
     }
@@ -434,7 +636,7 @@ const ChatsPage = () => {
                 />
             )}
 
-            <aside className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col p-4 shadow-lg overflow-y-auto">
+            <aside className="w-80 bg-gray-900 border-r border-gray-700 flex flex-col p-4 shadow-lg overflow-y-auto">
                 <div className="flex justify-between items-center mb-5 pb-3 border-b border-gray-700">
                     <h3 className="text-white text-xl font-semibold">Welcome, {user.username}!</h3>
                     <button
@@ -449,68 +651,35 @@ const ChatsPage = () => {
                     </button>
                 </div>
 
-                <div className="mb-4">
-                    <UserSearch
-                        query={searchQuery}
-                        onSearchChange={handleSearchInputChange}
-                        searchResults={searchResults}
-                        onCreateChat={handleCreateNewChatFromUserSearch}
-                        chats={chats}
-                        currentUser={user}
-                        showNotification={displayNotification}
-                    />
-                </div>
+                <UserSearch
+                    query={searchQuery}
+                    onSearchChange={handleSearchInputChange}
+                    searchResults={searchResults}
+                    onCreateChat={handleCreateNewChatFromUserSearch}
+                    chats={chats} // Pass chats to UserSearch if it needs to check for existing DMs
+                    currentUser={user}
+                    showNotification={displayNotification}
+                    isGroupCreationMode={isCreatingGroupChat}
+                    selectedUsersForGroupChat={selectedUsersForGroupChat}
+                    onSelectUserForGroupChat={handleSelectUserForGroupChat}
+                    newGroupChatName={newGroupChatName}
+                    onNewGroupChatNameChange={setNewGroupChatName}
+                    onCreateGroupChat={handleCreateNewChatFromUserSearch}
+                    onInitiateGroupChat={handleInitiateGroupChatCreation}
+                    onCancelGroupChat={handleCancelGroupChatCreation}
+                />
 
                 <div className="flex-grow overflow-y-auto custom-scrollbar">
                     {chats.length === 0 && !loadingChats ? (
                         <p className="text-center text-gray-400 p-5">No chats yet. Start a new one!</p>
                     ) : (
-                        chats.map(chat => {
-                            let chatDisplayName = chat.name;
-                            let chatDisplayImage = '/default-group-avatar.png';
-
-                            // Determine chat name and image for private chats
-                            if (chat.type === 'private') {
-                                // Find the other participant in a private chat
-                                const otherParticipant = chat.participants.find(p => p._id !== user._id);
-                                if (otherParticipant) {
-                                    chatDisplayName = otherParticipant.username;
-                                    chatDisplayImage = otherParticipant.profilePicture || '/default-avatar.png';
-                                } else if (chat.participants.length === 1 && chat.participants[0]._id === user._id) {
-                                    // Case for a "self-chat" (chat with only the current user)
-                                    chatDisplayName = `${user.username} (You)`;
-                                    chatDisplayImage = user.profilePicture || '/default-avatar.png';
-                                } else {
-                                    chatDisplayName = 'Unknown User'; // Fallback
-                                    chatDisplayImage = '/default-avatar.png';
-                                }
-                            }
-
-                            return (
-                                <div
-                                    key={chat._id}
-                                    onClick={() => handleChatSelect(chat)}
-                                    className={`flex items-center p-3 border-b border-gray-700 cursor-pointer hover:bg-gray-700 transition-colors relative
-                                    ${currentChatId === chat._id ? 'bg-gray-700 border-l-4 border-blue-500' : ''}`}
-                                >
-                                    <img src={chatDisplayImage} alt={chatDisplayName} className="w-12 h-12 rounded-full mr-4 object-cover border border-gray-600" />
-                                    <div className="flex-grow flex flex-col min-w-0">
-                                        <span className="font-semibold text-white truncate">{chatDisplayName}</span>
-                                        {chat.lastMessage && (
-                                            <span className="text-sm text-gray-400 truncate">
-                                                {chat.lastMessage.sender?._id === user._id ? 'You: ' : `${chat.lastMessage.sender?.username}: `}
-                                                {chat.lastMessage.content}
-                                            </span>
-                                        )}
-                                    </div>
-                                    {chat.unreadCount > 0 && (
-                                        <span className="bg-blue-500 text-white rounded-full px-2 py-1 text-xs font-bold absolute top-2 right-2 min-w-[24px] text-center">
-                                            {chat.unreadCount}
-                                        </span>
-                                    )}
-                                </div>
-                            );
-                        })
+                        <ChatList
+                            chats={chats}
+                            onSelectChat={handleChatSelect}
+                            selectedChatId={currentChatId}
+                            currentUser={user}
+                            onRemoveChat={handleRemoveChat}
+                        />
                     )}
                 </div>
             </aside>
