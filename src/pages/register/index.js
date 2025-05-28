@@ -2,6 +2,7 @@
 import React from 'react';
 import AuthForm from '../../components/AuthForm';
 import { useRouter } from 'next/router'; // Import useRouter
+import Layout from '../../components/Layout'; 
 
 const RegisterPage = () => {
     const router = useRouter();
@@ -16,9 +17,11 @@ const RegisterPage = () => {
     };
 
     return (
+        <layout>
         <div className="min-h-screen flex items-center justify-center bg-gray-900">
             <AuthForm formType="register" onAuthSuccess={handleRegisterSuccess} />
         </div>
+        </layout>
     );
 };
 
