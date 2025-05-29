@@ -4,10 +4,10 @@ import { useRouter } from 'next/router';
 import io from 'socket.io-client';
 import { getChats, getUserProfile, createChat, getMessagesForChat, searchUsers, markMessagesAsRead } from '../../lib/api';
 import ChatWindow from '../../components/ChatWindow';
-import UserSearch from '../../components/UserSearch';
+import UserSearch from '../../components/UserSearch'; // Corrected import
 import Notification from '../../components/Notification';
 import ChatList from '../../components/ChatList';
-import { set } from 'date-fns';
+// import { set } from 'date-fns'; // This import seems unused and can be removed if not used elsewhere
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api';
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
@@ -25,6 +25,7 @@ const ChatsPage = () => {
     const [notificationMessage, setNotificationMessage] = useState('');
     const [notificationType, setNotificationType] = useState('info');
     const [showNotification, setShowNotification] = useState(false);
+    const [showUserMenu, setShowUserMenu] = useState(false); // State for user profile picture menu visibility
 
     // States specific to your UserSearch component in sidebar
     const [searchQuery, setSearchQuery] = useState('');
@@ -37,12 +38,26 @@ const ChatsPage = () => {
 
     const socket = useRef(null);
     const currentChatRef = useRef(currentChat); // Ref to hold the latest currentChat state
+    const userMenuRef = useRef(null); // Ref for the user menu dropdown
 
     // --- Update currentChatRef whenever currentChat state changes ---
     useEffect(() => {
         currentChatRef.current = currentChat;
         console.log('[FRONTEND DEBUG] currentChat state updated (ref):', currentChat ? currentChat._id : 'null');
     }, [currentChat]); // This useEffect solely keeps the ref updated
+
+    // --- Close user menu when clicking outside ---
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+                setShowUserMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
 
     // --- Notification Logic ---
     const displayNotification = useCallback((msg, type = 'info') => {
@@ -452,7 +467,7 @@ const ChatsPage = () => {
             const filtered = data.filter(u => user && u._id !== user._id);
             setSearchResults(filtered);
         } catch (error) {
-            console.error('[SEARCH] User search error:', error);
+                console.error('[SEARCH] User search error:', error);
             displayNotification(error.message || 'Failed to search users.', 'error');
         }
     }, [token, user, displayNotification, isCreatingGroupChat]);
@@ -615,7 +630,7 @@ const ChatsPage = () => {
                 } else {
                     // For private chats, you might have a 'hide_chat' event or rely on backend to sync
                     // If the backend already handles sending 'chatHidden', this might be redundant for now.
-                    // socket.current.emit('hide_chat', chatId); 
+                    // socket.current.emit('hide_chat', chatId);
                 }
             }
 
@@ -625,6 +640,20 @@ const ChatsPage = () => {
         }
     }, [token, currentChat, displayNotification, socket]); // Added currentChat and socket to deps
 
+    // --- Logout Function ---
+    const handleLogout = useCallback(() => {
+        console.log('[AUTH] Logging out...');
+        localStorage.removeItem('token');
+        setUser(null);
+        router.push('/');
+        router.reload();
+    }, [router]);
+
+    // --- Settings Click Handler ---
+    const handleSettingsClick = useCallback(() => {
+        router.push('/settings');
+        setShowUserMenu(false); // Close menu after clicking
+    }, [displayNotification]);
 
     if (!user || loadingChats) {
         return <div className="flex justify-center items-center h-screen text-lg text-gray-700">Loading chat page...</div>;
@@ -641,20 +670,37 @@ const ChatsPage = () => {
             )}
 
             <aside className="w-80 bg-gray-900 border-r border-gray-700 flex flex-col p-4 shadow-lg overflow-y-auto">
-                <div className="flex justify-between items-center mb-5 pb-3 border-b border-gray-700">
-                    <h3 className="text-white text-xl font-semibold">Welcome, {user.username}!</h3>
-                    <button
-                        onClick={() => {
-                            console.log('[AUTH] Logging out...');
-                            localStorage.removeItem('token');
-                            setUser(null);
-                            router.push('/');
-                            router.reload();
-                        }}
-                        className="bg-red-600 text-white px-3 py-2 rounded-md hover:bg-red-700 transition-colors"
-                    >
-                        Logout
-                    </button>
+                <div className="relative flex justify-between items-center mb-5 pb-3 border-b border-gray-700 h-16"> {/* Added fixed height and centered items */}
+                    <h3 className="text-white text-xl font-semibold">Chats</h3>
+                    <div ref={userMenuRef}>
+                        <button
+                            onClick={() => setShowUserMenu(!showUserMenu)}
+                            className="focus:outline-none flex items-center justify-center w-10 h-10 rounded-full overflow-hidden" // Ensured button itself is centered and sized
+                            aria-label="Open user menu"
+                        >
+                            <img
+                                src={user.profilePicture || `https://placehold.co/40x40/374151/E5E7EB?text=${user.username[0].toUpperCase()}`}
+                                alt={user.username}
+                                className="w-full h-full object-cover" // Image fills the button, object-cover for scaling
+                            />
+                        </button>
+                        {showUserMenu && (
+                            <div className="absolute right-0 mt-2 w-48 bg-gray-700 rounded-md shadow-lg py-1 z-10">
+                                <button
+                                    onClick={handleSettingsClick}
+                                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-600"
+                                >
+                                    Settings
+                                </button>
+                                <button
+                                    onClick={handleLogout}
+                                    className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-600"
+                                >
+                                    Sign Out
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <UserSearch

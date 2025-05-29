@@ -1,5 +1,6 @@
 // frontend/lib/api.js
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+// Changed API_BASE_URL to BACKEND_URL for consistency as used in the file
 
 const handleResponse = async (response) => {
     if (!response.ok) {
@@ -32,7 +33,8 @@ export const loginUser = async (email, password) => {
 };
 
 export const getUserProfile = async (token) => {
-    const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
+    // --- UPDATED: Corrected endpoint from /api/auth/me to /api/users/me ---
+    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
         method: 'GET',
         headers: {
             'Content-Type': 'application/json',
@@ -65,29 +67,23 @@ export const createChat = async (participantIds, type, name = '', token) => {
     return handleResponse(response);
 };
 
-export const sendMessage = async (chatId, content, token, file = null) => { // Added 'file' parameter
+export const sendMessage = async (chatId, content, token, file = null) => {
     let body;
     let headers = {
         'Authorization': `Bearer ${token}`,
     };
 
     if (file) {
-        // If a file is provided, create FormData
         const formData = new FormData();
-        if (content.trim()) { // Only append content if it's not empty
+        if (content.trim()) {
             formData.append('content', content.trim());
         }
-        formData.append('media', file); // 'media' is the field name Multer expects
+        formData.append('media', file);
 
         body = formData;
-        // DO NOT set 'Content-Type': 'multipart/form-data' explicitly here.
-        // When you send a FormData object, fetch/browser will automatically
-        // set the correct 'Content-Type' header with the boundary.
-        // If you set it manually, it will break the upload.
     } else {
-        // Otherwise, send as JSON
         body = JSON.stringify({ content });
-        headers['Content-Type'] = 'application/json'; // Set for JSON payloads
+        headers['Content-Type'] = 'application/json';
     }
 
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/messages`, {
@@ -127,7 +123,7 @@ export const markMessagesAsRead = async (chatId, token) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({}), // Empty body as chatId and userId are in params
+        body: JSON.stringify({}),
     });
     return handleResponse(response);
 };
@@ -191,4 +187,71 @@ export const leaveGroupChat = async (chatId, token) => {
         },
     });
     return handleResponse(response);
+};
+
+export const updateUserProfilePicture = async (formData, token) => {
+    // --- UPDATED: Added /api/ prefix ---
+    const response = await fetch(`${BACKEND_URL}/api/users/profile-picture`, {
+        method: 'PUT',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+    });
+    return handleResponse(response);
+};
+
+export const updateUsername = async (newUsername, token) => {
+    // --- UPDATED: Added /api/ prefix ---
+    const response = await fetch(`${BACKEND_URL}/api/users/username`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ username: newUsername }),
+    });
+    return handleResponse(response);
+};
+
+export const updateEmail = async (newEmail, token) => {
+    // --- UPDATED: Added /api/ prefix ---
+    const response = await fetch(`${BACKEND_URL}/api/users/email`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: newEmail }),
+    });
+    return handleResponse(response);
+};
+
+export const updatePassword = async (currentPassword, newPassword, token) => {
+    // --- UPDATED: Added /api/ prefix ---
+    const response = await fetch(`${BACKEND_URL}/api/users/password`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    return handleResponse(response);
+};
+
+// --- Availability Check APIs ---
+
+export const checkUsernameAvailability = async (username) => {
+    // --- UPDATED: Added /api/ prefix ---
+    const response = await fetch(`${BACKEND_URL}/api/users/check-username?username=${encodeURIComponent(username)}`);
+    const data = await response.json();
+    return data.isAvailable;
+};
+
+export const checkEmailAvailability = async (email) => {
+    // --- UPDATED: Added /api/ prefix ---
+    const response = await fetch(`${BACKEND_URL}/api/users/check-email?email=${encodeURIComponent(email)}`);
+    const data = await response.json();
+    return data.isAvailable;
 };

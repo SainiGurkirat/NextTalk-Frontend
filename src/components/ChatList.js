@@ -28,8 +28,7 @@ const ChatList = ({ chats, onSelectChat, selectedChatId, currentUser, onRemoveCh
                                 chatDisplayName = otherParticipant.username;
                                 chatDisplayImage = otherParticipant.profilePicture || `https://placehold.co/40x40/374151/E5E7EB?text=${getFirstLetter(otherParticipant.username)}`;
                             } else if (chat.participants.length === 1 && chat.participants[0]._id === currentUser._id) {
-                                chatDisplayName = `${currentUser.username} (You)`;
-                                chatDisplayImage = currentUser.profilePicture || `https://placehold.co/40x40/374151/E5E7EB?text=${getFirstLetter(currentUser.username)}`;
+                                return;
                             } else {
                                 chatDisplayName = 'Unknown User';
                                 chatDisplayImage = `https://placehold.co/40x40/374151/E5E7EB?text=U`;
