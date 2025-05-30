@@ -1,7 +1,6 @@
-// frontend/contexts/SocketContext.js
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import io from 'socket.io-client';
-import { useAuth } from './AuthContext'; // Import useAuth to get the token
+import { useAuth } from './AuthContext'; // import useauth to get the token
 
 const SocketContext = createContext();
 
@@ -11,70 +10,63 @@ export const useSocket = () => {
 
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
-  const { isAuthenticated, token } = useAuth(); // Only need isAuthenticated and token from AuthContext
+  const { isAuthenticated, token } = useAuth(); // get auth status and token
 
   useEffect(() => {
-    // Only attempt to connect if authenticated and we have a token
+    // connect only if authenticated and a token exists
     if (isAuthenticated && token) {
-      // If a socket instance already exists and is connected, do nothing.
-      // This prevents creating new sockets on re-renders where
-      // isAuthenticated or token haven't truly changed state,
-      // or if the socket is already established.
+      // prevent creating new socket if already connected
       if (socket && socket.connected) {
         return;
       }
 
-      console.log('SocketProvider: Attempting to connect to Socket.IO...');
+      console.log('socketprovider: attempting to connect to socket.io...');
 
+      // create new socket instance
       const newSocket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000', {
-        query: { token }, // Pass the token in the query string for authentication
-        transports: ['websocket'], // Prefer websocket for real-time
+        query: { token }, // pass token for authentication
+        transports: ['websocket'], // prefer websocket
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
       });
 
+      // handle socket connection
       newSocket.on('connect', () => {
-        console.log(`Socket.IO connected: ${newSocket.id}`);
+        console.log(`socket.io connected: ${newSocket.id}`);
       });
 
+      // handle connection errors
       newSocket.on('connect_error', (err) => {
-        console.error('Socket.IO Connect Error:', err);
-        // On connection error, ensure the socket state is cleared to allow future attempts
-        // The effect will re-run if isAuthenticated/token are still true, attempting a new connection.
-        setSocket(null);
+        console.error('socket.io connect error:', err);
+        setSocket(null); // clear socket on error to allow retry
       });
 
+      // handle socket disconnection
       newSocket.on('disconnect', (reason) => {
-        console.log('Socket.IO Disconnected:', reason);
-        // On disconnect, ensure the socket state is cleared to allow future attempts
-        setSocket(null);
+        console.log('socket.io disconnected:', reason);
+        setSocket(null); // clear socket on disconnect
       });
 
-      setSocket(newSocket); // Set the new socket instance to state
+      setSocket(newSocket); // set the new socket instance
 
-      // Cleanup function: disconnect the socket when component unmounts
-      // or when isAuthenticated/token dependencies change, triggering a re-run.
+      // cleanup function: disconnect socket on unmount or dependency change
       return () => {
-        console.log('SocketProvider: Disconnecting Socket.IO...');
+        console.log('socketprovider: disconnecting socket.io...');
         newSocket.off('connect');
         newSocket.off('connect_error');
         newSocket.off('disconnect');
         newSocket.disconnect();
-        // We do NOT call setSocket(null) here because the setSocket(null) in the
-        // event handlers (connect_error, disconnect) handles cases where the
-        // connection breaks. This cleanup is primarily for unmounting or
-        // when the effect re-runs due to dependency changes (isAuthenticated/token).
       };
     } else {
-      // If not authenticated or token is missing, and a socket currently exists, disconnect it.
+      // disconnect existing socket if not authenticated or token is missing
       if (socket) {
-        console.log('SocketProvider: Not authenticated or token missing, disconnecting socket.');
+        console.log('socketprovider: not authenticated or token missing, disconnecting socket.');
         socket.disconnect();
         setSocket(null);
       }
     }
-  }, [isAuthenticated, token]); // Dependencies: ONLY isAuthenticated and token
+  }, [isAuthenticated, token]); // dependencies for effect
 
   return (
     <SocketContext.Provider value={socket}>

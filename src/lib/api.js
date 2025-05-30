@@ -1,15 +1,17 @@
 // frontend/lib/api.js
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
-// Changed API_BASE_URL to BACKEND_URL for consistency as used in the file
+// sets the base url for backend api calls
 
+// handles api response errors
 const handleResponse = async (response) => {
     if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Something went wrong');
+        throw new Error(errorData.message || 'something went wrong');
     }
     return response.json();
 };
 
+// registers a new user
 export const registerUser = async (username, email, password) => {
     const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
         method: 'POST',
@@ -21,6 +23,7 @@ export const registerUser = async (username, email, password) => {
     return handleResponse(response);
 };
 
+// logs in a user
 export const loginUser = async (email, password) => {
     const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
@@ -32,8 +35,8 @@ export const loginUser = async (email, password) => {
     return handleResponse(response);
 };
 
+// fetches the current user's profile
 export const getUserProfile = async (token) => {
-    // --- UPDATED: Corrected endpoint from /api/auth/me to /api/users/me ---
     const response = await fetch(`${BACKEND_URL}/api/users/me`, {
         method: 'GET',
         headers: {
@@ -44,6 +47,7 @@ export const getUserProfile = async (token) => {
     return handleResponse(response);
 };
 
+// retrieves all chats for the user
 export const getChats = async (token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats`, {
         method: 'GET',
@@ -55,6 +59,7 @@ export const getChats = async (token) => {
     return handleResponse(response);
 };
 
+// creates a new chat, either private or group
 export const createChat = async (participantIds, type, name = '', token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats`, {
         method: 'POST',
@@ -67,12 +72,14 @@ export const createChat = async (participantIds, type, name = '', token) => {
     return handleResponse(response);
 };
 
+// sends a message within a chat, supporting text and files
 export const sendMessage = async (chatId, content, token, file = null) => {
     let body;
     let headers = {
         'Authorization': `Bearer ${token}`,
     };
 
+    // prepares body based on whether a file is included
     if (file) {
         const formData = new FormData();
         if (content.trim()) {
@@ -94,6 +101,7 @@ export const sendMessage = async (chatId, content, token, file = null) => {
     return handleResponse(response);
 };
 
+// retrieves messages for a specific chat
 export const getMessagesForChat = async (chatId, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/messages`, {
         method: 'GET',
@@ -105,6 +113,7 @@ export const getMessagesForChat = async (chatId, token) => {
     return handleResponse(response);
 };
 
+// searches for users by username or email
 export const searchUsers = async (query, token) => {
     const response = await fetch(`${BACKEND_URL}/api/users/search?q=${encodeURIComponent(query)}`, {
         method: 'GET',
@@ -116,6 +125,7 @@ export const searchUsers = async (query, token) => {
     return handleResponse(response);
 };
 
+// marks messages in a chat as read
 export const markMessagesAsRead = async (chatId, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/markAsRead`, {
         method: 'POST',
@@ -128,7 +138,7 @@ export const markMessagesAsRead = async (chatId, token) => {
     return handleResponse(response);
 };
 
-// NEW: Get Group Members
+// fetches members of a group chat
 export const getGroupMembers = async (chatId, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members`, {
         method: 'GET',
@@ -140,7 +150,7 @@ export const getGroupMembers = async (chatId, token) => {
     return handleResponse(response);
 };
 
-// NEW: Add Group Members
+// adds new members to an existing group chat
 export const addGroupMembers = async (chatId, newMemberIds, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members`, {
         method: 'POST',
@@ -153,7 +163,7 @@ export const addGroupMembers = async (chatId, newMemberIds, token) => {
     return handleResponse(response);
 };
 
-// NEW: Remove Group Member
+// removes a member from a group chat
 export const removeGroupMember = async (chatId, memberIdToRemove, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/${chatId}/members/${memberIdToRemove}`, {
         method: 'DELETE',
@@ -165,7 +175,7 @@ export const removeGroupMember = async (chatId, memberIdToRemove, token) => {
     return handleResponse(response);
 };
 
-// NEW: Hide a private chat
+// hides a private chat from the chat list
 export const hideChat = async (chatId, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/hide/${chatId}`, {
         method: 'PUT',
@@ -177,7 +187,7 @@ export const hideChat = async (chatId, token) => {
     return handleResponse(response);
 };
 
-// NEW: Leave a group chat
+// allows a user to leave a group chat
 export const leaveGroupChat = async (chatId, token) => {
     const response = await fetch(`${BACKEND_URL}/api/chats/leave/${chatId}`, {
         method: 'PUT',
@@ -189,8 +199,8 @@ export const leaveGroupChat = async (chatId, token) => {
     return handleResponse(response);
 };
 
+// updates the user's profile picture
 export const updateUserProfilePicture = async (formData, token) => {
-    // --- UPDATED: Added /api/ prefix ---
     const response = await fetch(`${BACKEND_URL}/api/users/profile-picture`, {
         method: 'PUT',
         headers: {
@@ -201,8 +211,8 @@ export const updateUserProfilePicture = async (formData, token) => {
     return handleResponse(response);
 };
 
+// updates the user's username
 export const updateUsername = async (newUsername, token) => {
-    // --- UPDATED: Added /api/ prefix ---
     const response = await fetch(`${BACKEND_URL}/api/users/username`, {
         method: 'PUT',
         headers: {
@@ -214,8 +224,8 @@ export const updateUsername = async (newUsername, token) => {
     return handleResponse(response);
 };
 
+// updates the user's email address
 export const updateEmail = async (newEmail, token) => {
-    // --- UPDATED: Added /api/ prefix ---
     const response = await fetch(`${BACKEND_URL}/api/users/email`, {
         method: 'PUT',
         headers: {
@@ -227,8 +237,8 @@ export const updateEmail = async (newEmail, token) => {
     return handleResponse(response);
 };
 
+// updates the user's password
 export const updatePassword = async (currentPassword, newPassword, token) => {
-    // --- UPDATED: Added /api/ prefix ---
     const response = await fetch(`${BACKEND_URL}/api/users/password`, {
         method: 'PUT',
         headers: {
@@ -240,17 +250,15 @@ export const updatePassword = async (currentPassword, newPassword, token) => {
     return handleResponse(response);
 };
 
-// --- Availability Check APIs ---
-
+// checks if a username is available
 export const checkUsernameAvailability = async (username) => {
-    // --- UPDATED: Added /api/ prefix ---
     const response = await fetch(`${BACKEND_URL}/api/users/check-username?username=${encodeURIComponent(username)}`);
     const data = await response.json();
     return data.isAvailable;
 };
 
+// checks if an email is available
 export const checkEmailAvailability = async (email) => {
-    // --- UPDATED: Added /api/ prefix ---
     const response = await fetch(`${BACKEND_URL}/api/users/check-email?email=${encodeURIComponent(email)}`);
     const data = await response.json();
     return data.isAvailable;

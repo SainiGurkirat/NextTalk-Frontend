@@ -3,21 +3,20 @@ import { useEffect } from 'react';
 import AuthForm from '../../components/AuthForm';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'next/router';
-import Layout from '../../components/Layout'; // Assuming you have a Layout component
+import Layout from '../../components/Layout';
 
 const LoginPage = () => {
-  const { isAuthenticated, login } = useAuth(); // Assuming login is the function to set auth state
+  const { isAuthenticated, login } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.push('/chats'); // Redirect to chats page if already authenticated
+      router.push('/chats'); // redirect to chats page if already authenticated
     }
   }, [isAuthenticated, router]);
 
-  // onAuthSuccess is a prop passed to AuthForm, which calls AuthContext's login function
   const handleLoginSuccess = (token) => {
-    login(token); // Update AuthContext state
+    login(token); // update authContext state
   };
 
   return (

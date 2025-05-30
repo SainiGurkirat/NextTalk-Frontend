@@ -1,62 +1,44 @@
-// frontend/components/AuthForm.js
-import React, { useState } from 'react';
-import Link from 'next/link';
-import { useAuth } from '../context/AuthContext'; // Import useAuth hook
+import React, { useState } from 'react'
+import Link from 'next/link'
+import { useAuth } from '../context/AuthContext'
 
-const AuthForm = ({ formType }) => { // onAuthSuccess prop is no longer needed here
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [username, setUsername] = useState(''); // Only for register
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
+const AuthForm = ({ formType }) => {
+    const [email, setEmail] = useState('')
+    const [password, setPassword] = useState('')
+    const [username, setUsername] = useState('')
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState(null)
 
-    const { login, register } = useAuth(); // Get login and register functions from AuthContext
-
-    const isLogin = formType === 'login';
+    const { login, register } = useAuth()
+    const isLogin = formType === 'login'
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-        setError(null);
-
-        console.log(`[AuthForm] Submitting ${isLogin ? 'Login' : 'Register'} Form:`);
-        console.log('[AuthForm] Email (before passing to context):', email);
-        console.log('[AuthForm] Password (before passing to context):', password);
-        if (!isLogin) {
-            console.log('[AuthForm] Username (before passing to context):', username);
-        }
+        e.preventDefault()
+        setLoading(true)
+        setError(null)
 
         try {
-            let result;
+            let result
             if (isLogin) {
-                // *** CRITICAL FIX: Pass email and password as separate arguments ***
-                result = await login(email, password);
+                result = await login(email, password)
             } else {
-                // For register, still pass an object if AuthContext.register expects it
-                // (Your AuthContext.js currently expects an object for register)
-                result = await register({ username, email, password });
+                result = await register({ username, email, password })
             }
 
-            if (result.success) {
-                console.log(`${isLogin ? 'Login' : 'Registration'} successful!`);
-                // AuthContext handles redirection/setting user state
-                // No need to set localStorage or call onAuthSuccess here anymore
-            } else {
-                // Error handled by AuthContext and returned
-                throw new Error(result.error || 'Authentication failed.');
+            if (!result.success) {
+                throw new Error(result.error || 'authentication failed')
             }
         } catch (err) {
-            console.error('Authentication error:', err);
-            setError(err.message || 'An unexpected error occurred during authentication.');
+            setError(err.message || 'an unexpected error occurred')
         } finally {
-            setLoading(false);
+            setLoading(false)
         }
-    };
+    }
 
     return (
         <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md mx-auto my-10">
             <h2 className="text-3xl font-bold text-white text-center mb-6">
-                {isLogin ? 'Login' : 'Register'}
+                {isLogin ? 'login' : 'register'}
             </h2>
 
             {error && (
@@ -69,28 +51,28 @@ const AuthForm = ({ formType }) => { // onAuthSuccess prop is no longer needed h
                 {!isLogin && (
                     <div>
                         <label htmlFor="username" className="block text-gray-300 text-sm font-bold mb-2">
-                            Username
+                            username
                         </label>
                         <input
                             type="text"
                             id="username"
                             className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-900 leading-tight focus:outline-none focus:shadow-outline"
-                            placeholder="Your username"
+                            placeholder="your username"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            required={!isLogin}
+                            required
                         />
                     </div>
                 )}
                 <div>
                     <label htmlFor="email" className="block text-gray-300 text-sm font-bold mb-2">
-                        Email
+                        email
                     </label>
                     <input
                         type="email"
                         id="email"
                         className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-900 leading-tight focus:outline-none focus:shadow-outline"
-                        placeholder="Your email"
+                        placeholder="your email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
@@ -98,13 +80,13 @@ const AuthForm = ({ formType }) => { // onAuthSuccess prop is no longer needed h
                 </div>
                 <div>
                     <label htmlFor="password" className="block text-gray-300 text-sm font-bold mb-2">
-                        Password
+                        password
                     </label>
                     <input
                         type="password"
                         id="password"
                         className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-900 leading-tight focus:outline-none focus:shadow-outline"
-                        placeholder="Your password"
+                        placeholder="your password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
@@ -115,29 +97,29 @@ const AuthForm = ({ formType }) => { // onAuthSuccess prop is no longer needed h
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50"
                     disabled={loading}
                 >
-                    {loading ? 'Loading...' : (isLogin ? 'Login' : 'Register')}
+                    {loading ? 'loading...' : (isLogin ? 'login' : 'register')}
                 </button>
             </form>
 
             <div className="mt-6 text-center text-gray-300">
                 {isLogin ? (
                     <p>
-                        Need an account?{' '}
+                        need an account{' '}
                         <Link href="/register" className="text-blue-400 hover:underline">
-                            Register
+                            register
                         </Link>
                     </p>
                 ) : (
                     <p>
-                        Already have an account?{' '}
+                        already have an account{' '}
                         <Link href="/login" className="text-blue-400 hover:underline">
-                            Login
+                            login
                         </Link>
                     </p>
                 )}
             </div>
         </div>
-    );
-};
+    )
+}
 
-export default AuthForm;
+export default AuthForm

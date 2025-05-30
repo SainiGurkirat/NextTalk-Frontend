@@ -4,15 +4,16 @@
 
 /* Custom scrollbar for better aesthetics */
 ::-webkit-scrollbar {
+  
     width: 8px;
     height: 8px;
 }
 ::-webkit-scrollbar-track {
-    background: #070707;
+    background: #0000003d;
     border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb {
-    background: #4e7188; /* slate-300 */
+    background: #305871; /* slate-300 */
     border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {

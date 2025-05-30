@@ -1,13 +1,12 @@
-// --- File: src/components/ChatList.js ---
 import React from 'react';
 
 const ChatList = ({ chats, onSelectChat, selectedChatId, currentUser, onRemoveChat }) => {
-    // Helper function to safely get the first letter of a string for avatars
+    // grab the first letter for fallback avatars
     const getFirstLetter = (name) => {
         if (name && typeof name === 'string' && name.trim().length > 0) {
             return name.trim()[0].toUpperCase();
         }
-        return '?'; // Default fallback if name is invalid or empty
+        return '?';
     };
 
     return (
@@ -22,6 +21,7 @@ const ChatList = ({ chats, onSelectChat, selectedChatId, currentUser, onRemoveCh
                         const isGroupChat = chat.type === 'group';
 
                         if (chat.type === 'private') {
+                            // get the other user in the private chat
                             const otherParticipant = chat.participants.find(p => p._id !== currentUser._id);
 
                             if (otherParticipant && otherParticipant.username) {
@@ -33,24 +33,23 @@ const ChatList = ({ chats, onSelectChat, selectedChatId, currentUser, onRemoveCh
                                 chatDisplayName = 'Unknown User';
                                 chatDisplayImage = `https://placehold.co/40x40/374151/E5E7EB?text=U`;
                             }
-                        } else { // Group chat
+                        } else {
                             chatDisplayName = chat.name || 'Group Chat';
                             chatDisplayImage = chat.profilePicture || `https://placehold.co/40x40/374151/E5E7EB?text=G`;
                         }
 
-                        // --- Start: Logic for displaying last message preview with sender name ---
-                        let displayLastMessage = "No messages yet."; // Default value
+                        let displayLastMessage = "No messages yet.";
 
                         if (chat.lastMessage) {
                             const lastMessageContent = chat.lastMessage.content;
-                            const lastMessageSenderName = chat.lastMessage.sender?.username; // Get sender's username
+                            const lastMessageSenderName = chat.lastMessage.sender?.username;
                             const senderPrefix = lastMessageSenderName ? `${lastMessageSenderName}: ` : '';
 
                             const hasTextContent = lastMessageContent && lastMessageContent.trim().length > 0;
                             const isMediaMessage = chat.lastMessage.mediaUrl;
 
                             if (isMediaMessage && !hasTextContent) {
-                                // If it's a media message with no additional text content
+                                // no text, just media, show icon + label
                                 let mediaTypeLabel = '';
                                 switch (chat.lastMessage.mediaType) {
                                     case 'image':
@@ -60,27 +59,25 @@ const ChatList = ({ chats, onSelectChat, selectedChatId, currentUser, onRemoveCh
                                         mediaTypeLabel = <><i className="fas fa-video mr-1"></i> Video Attachment</>;
                                         break;
                                     case 'gif':
-                                        mediaTypeLabel = <><i className="fas fa-file-image mr-1"></i> GIF Attachment</>; // Using a file-image icon for GIF
+                                        mediaTypeLabel = <><i className="fas fa-file-image mr-1"></i> GIF Attachment</>;
                                         break;
                                     default:
-                                        mediaTypeLabel = <><i className="fas fa-paperclip mr-1"></i> Attachment</>; // Generic attachment icon
+                                        mediaTypeLabel = <><i className="fas fa-paperclip mr-1"></i> Attachment</>;
                                 }
-                                displayLastMessage = <>{senderPrefix}{mediaTypeLabel}</>; // Prepend sender name
+                                displayLastMessage = <>{senderPrefix}{mediaTypeLabel}</>;
                             } else if (hasTextContent) {
-                                // If it has text content, display it, potentially truncated
+                                // show sender + text, cut off if long
                                 const messageText = `${lastMessageContent}`;
-                                displayLastMessage = `${senderPrefix}${messageText.length > 30 // Adjust truncation length as needed
+                                displayLastMessage = `${senderPrefix}${messageText.length > 30
                                     ? messageText.substring(0, 27) + '...'
                                     : messageText}`;
                             }
                         }
-                        // --- End: Logic for displaying last message preview with sender name ---
 
                         const isActive = selectedChatId === chat._id;
 
-                        // Handler for the remove button click
                         const handleRemoveClick = (e) => {
-                            e.stopPropagation(); // Prevent the li's onClick (chat selection) from firing
+                            e.stopPropagation(); // don't trigger chat selection
                             const actionText = isGroupChat ? 'leave' : 'hide';
                             if (window.confirm(`Are you sure you want to ${actionText} this chat?`)) {
                                 onRemoveChat(chat._id, isGroupChat);
@@ -90,13 +87,10 @@ const ChatList = ({ chats, onSelectChat, selectedChatId, currentUser, onRemoveCh
                         return (
                             <li
                                 key={chat._id}
-                                onClick={() => onSelectChat(chat)} // Pass the whole chat object for selection
+                                onClick={() => onSelectChat(chat)}
                                 className={`
                                     relative flex items-center px-3 py-2.5 cursor-pointer transition-colors duration-200 rounded-md mx-1 my-1 text-white group
-                                    ${isActive
-                                        ? 'bg-blue-800'
-                                        : 'hover:bg-gray-700'
-                                    }
+                                    ${isActive ? 'bg-blue-800' : 'hover:bg-gray-700'}
                                 `}
                             >
                                 <img
@@ -118,7 +112,7 @@ const ChatList = ({ chats, onSelectChat, selectedChatId, currentUser, onRemoveCh
                                     <div className="w-2.5 h-2.5 bg-blue-500 rounded-full ml-2 flex-shrink-0"></div>
                                 )}
 
-                                {/* Remove Chat Button */}
+                                {/* delete/leave chat button shows on hover */}
                                 <button
                                     onClick={handleRemoveClick}
                                     title={isGroupChat ? "Leave Group" : "Hide Chat"}

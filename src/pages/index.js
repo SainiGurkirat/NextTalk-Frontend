@@ -1,4 +1,3 @@
-// frontend/pages/index.js
 import React from 'react';
 import Link from 'next/link';
 import Layout from '../components/Layout';
@@ -9,12 +8,12 @@ const HomePage = () => {
 
   return (
     <Layout title="Welcome to NextTalk">
-      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] bg-gray-900 text-white p-4">
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] bg-gray-1000 text-white p-4">
         <h1 className="text-5xl font-bold text-blue-500 mb-6 animate-pulse">
           Welcome to NextTalk!
         </h1>
         <p className="text-xl text-gray-300 mb-8 text-center max-w-2xl">
-          Connect with your friends and colleagues in real-time. Simple, fast, and secure messaging.
+          Connect with your friends using NextTalk.
         </p>
 
         {isAuthenticated ? (
@@ -28,11 +27,8 @@ const HomePage = () => {
           </>
         ) : (
           <div className="flex space-x-4">
-            <Link href="/login" className="px-8 py-3 bg-blue-500 text-white text-lg font-semibold rounded-lg shadow-lg hover:bg-blue-600 transition-colors duration-300">
-              Login
-            </Link>
-            <Link href="/register" className="px-8 py-3 bg-green-500 text-white text-lg font-semibold rounded-lg shadow-lg hover:bg-green-600 transition-colors duration-300">
-              Register
+            <Link href="/register" className="px-5 py-2 bg-green-600 text-white text-lg font-semibold rounded-lg shadow-lg hover:bg-green-300 transition-colors duration-300">
+              Get Started
             </Link>
           </div>
         )}

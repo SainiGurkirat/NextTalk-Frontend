@@ -1,12 +1,11 @@
-// frontend/pages/_app.js
 import '../../styles/globals.css';
 import { AuthProvider } from '../context/AuthContext';
-import { SocketProvider } from '../context/SocketContext'; // Import SocketProvider
+import { SocketProvider } from '../context/SocketContext'; 
 
 function MyApp({ Component, pageProps }) {
   return (
     <AuthProvider>
-      <SocketProvider> {/* Wrap with SocketProvider */}
+      <SocketProvider>
         <Component {...pageProps} />
       </SocketProvider>
     </AuthProvider>

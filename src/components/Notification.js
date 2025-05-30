@@ -1,8 +1,6 @@
-// frontend/components/Notification.js
 import React, { useState, useEffect } from 'react';
-// import styles from '../styles/Notification.module.css'; // REMOVE THIS LINE
 
-const Notification = ({ message, type, duration = 5000, onClose }) => { // Changed default duration to 5000ms as used in ChatsPage
+const Notification = ({ message, type, duration = 5000, onClose }) => {
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {

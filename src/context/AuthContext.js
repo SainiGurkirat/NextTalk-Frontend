@@ -1,6 +1,3 @@
-// --- File: nexttalk-frontend/src/context/AuthContext.js ---
-// React Context for managing user authentication state.
-
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { loginUser, registerUser, getUserProfile } from '../lib/api';
@@ -9,21 +6,21 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true); // For initial auth check
+    const [loading, setLoading] = useState(true); // for initial auth check
     const router = useRouter();
 
     useEffect(() => {
+        // check user authentication status on component mount
         const checkAuth = async () => {
             const token = localStorage.getItem('token');
             if (token) {
                 try {
-                    // getUserProfile in api.js now returns the user object directly.
-                    // The backend /api/users/me returns the user object.
+                    // fetch user profile using the stored token
                     const userData = await getUserProfile(token);
                     setUser(userData);
                 } catch (error) {
-                    console.error('Failed to fetch user profile on mount (invalid token?):', error);
-                    localStorage.removeItem('token'); // Clear invalid token
+                    console.error('failed to fetch user profile (invalid token?):', error);
+                    localStorage.removeItem('token'); // clear invalid token
                     setUser(null);
                 }
             }
@@ -32,62 +29,54 @@ export const AuthProvider = ({ children }) => {
         checkAuth();
     }, []);
 
+    // handle user login
     const processLogin = async (email, password) => {
         setLoading(true);
         try {
             const response = await loginUser(email, password);
             localStorage.setItem('token', response.token);
-            // The backend /login route is expected to return { token, user: { _id, username, email, profilePicture } }
-            // So, setUser is correctly called with the full user object from the response.
-            setUser(response.user); // Set the user state with the full user object
-            router.push('/chats'); // Redirect immediately after successful login
+            setUser(response.user); // set user state with the full user object
+            router.push('/chats'); // redirect to chats page on success
             return { success: true };
         } catch (error) {
-            console.error('Login failed (AuthContext):', error);
-            // The error object might have a .message if from api.js handleResponse
-            return { success: false, error: error.message || 'Login failed' };
+            console.error('login failed (authcontext):', error);
+            return { success: false, error: error.message || 'login failed' };
         } finally {
             setLoading(false);
         }
     };
 
+    // handle user registration
     const register = async ({ username, email, password }) => {
         setLoading(true);
         try {
             const response = await registerUser(username, email, password);
-            console.log("Registration API Response: Registration successful!", response);
+            console.log("registration api response: registration successful!", response);
 
-            // Automatically log in the user after successful registration
-            // Assuming registerUser itself doesn't return a token to log in directly,
-            // we'll proceed with a separate login call if desired for immediate access.
-            // If registerUser *does* return a token/user, adjust this.
-            // Current setup calls processLogin which fetches user data and saves token.
-            await processLogin(email, password); // Use await here to ensure login completes
+            // automatically log in after successful registration
+            await processLogin(email, password);
 
-            router.push('/chats'); // Redirect after successful registration and login
+            router.push('/chats'); // redirect after successful registration and login
             return { success: true };
         } catch (error) {
-            console.error('Registration failed (AuthContext):', error);
-            return { success: false, error: error.message || 'Registration failed' };
+            console.error('registration failed (authcontext):', error);
+            return { success: false, error: error.message || 'registration failed' };
         } finally {
             setLoading(false);
         }
     };
 
-
+    // handle user logout
     const logout = () => {
         localStorage.removeItem('token');
         setUser(null);
-        router.push('/'); // Redirect to homepage or login page after logout
+        router.push('/'); // redirect to homepage after logout
     };
 
-    // Add isAuthenticated derived state for convenience
-    // A user is authenticated if 'user' object exists and loading is false.
+    // determine if user is authenticated
     const isAuthenticated = !!user && !loading;
-    // The token is directly available from localStorage, but for convenience
-    // in components that consume useAuth, we can expose it.
+    // get current token from local storage
     const currentToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-
 
     return (
         <AuthContext.Provider value={{ user, loading, isAuthenticated, token: currentToken, login: processLogin, register, logout }}>
